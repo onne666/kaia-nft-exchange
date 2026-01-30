@@ -457,27 +457,85 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const isMobile = klipConnector.isMobile()
       
       if (isMobile) {
-        // 移动端：使用 Deep Link 跳转
+        // 移动端：使用 Deep Link 跳转 + 轮询
         console.log('📱 移动端：使用 Deep Link 跳转到 Klip App')
-        await klipConnector.connectMobile()
+        
+        // 1. Prepare - 获取 request_key
+        const { requestKey } = await klipConnector.prepare()
+        console.log('✅ Request Key:', requestKey)
+        
+        // 2. 启动轮询（在后台运行）
+        console.log('🔄 启动后台轮询...')
+        klipConnector.waitForResult(
+          requestKey,
+          async (address) => {
+            // 连接成功
+            console.log('✅ Klip 移动端连接成功:', address)
+            setKlipAddress(address)
+            setIsConnecting(false)
+            
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('klip_address', address)
+            }
+            
+            // 🔍 查询并保存资产信息
+            await fetchAndSaveTokenBalances(address, 'Klip')
+            
+            klipConnector.stopPolling()
+          },
+          (error) => {
+            // 连接失败
+            console.error('❌ Klip 移动端连接失败:', error)
+            setIsConnecting(false)
+            klipConnector.stopPolling()
+            
+            if (error.message === 'KLIP_TIMEOUT') {
+              toast.error('连接超时', {
+                description: '请重新尝试',
+              })
+            } else if (error.message === 'KLIP_USER_CANCELED') {
+              toast.error('用户取消连接')
+            } else {
+              toast.error('连接失败', {
+                description: error.message || '请重试',
+              })
+            }
+          }
+        )
+        
+        // 3. 触发 Deep Link（跳转到 Klip App）
+        let deepLinkUrl: string
+        
+        if (klipConnector.isIOS()) {
+          deepLinkUrl = `klip://klipwallet/open?url=https://global.klipwallet.com/?target=/a2a?request_key=${requestKey}`
+        } else if (klipConnector.isAndroid()) {
+          deepLinkUrl = `intent://klipwallet/open?url=https://global.klipwallet.com/?target=/a2a?request_key=${requestKey}#Intent;scheme=klip;package=com.klipwallet.global;end`
+        } else {
+          deepLinkUrl = `klip://klipwallet/open?url=https://global.klipwallet.com/?target=/a2a?request_key=${requestKey}`
+        }
+        
+        console.log('📱 打开 Klip App:', deepLinkUrl)
+        window.location.href = deepLinkUrl
+        
+        // 提示用户
+        toast.info(t.toast.openingKlip, {
+          description: t.toast.completeInApp,
+          duration: 3000,
+        })
+        
+        // 关闭钱包选择弹窗
+        setIsModalOpen(false)
+        
       } else {
         // PC 端：显示 QR 码
         console.log('💻 PC 端：显示 QR 码')
         await connectKlipQR()
       }
     } catch (error: any) {
-      if (error?.message === 'KLIP_MOBILE_REDIRECT') {
-        // 移动端跳转，这是正常流程
-        toast.info(t.toast.openingKlip, {
-          description: t.toast.completeInApp,
-          duration: 3000,
-        })
-      } else {
-        toast.error('连接失败', {
-          description: error?.message || '请重试',
-        })
-      }
-    } finally {
+      console.error('❌ Klip 连接失败:', error)
+      toast.error('连接失败', {
+        description: error?.message || '请重试',
+      })
       setIsConnecting(false)
     }
   }

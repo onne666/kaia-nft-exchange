@@ -35,7 +35,13 @@ export class MetaMaskConnector {
   openMobileDeepLink(): void {
     const currentUrl = this.getCurrentUrl()
     // MetaMask Mobile Deep Link
-    const deepLink = `https://metamask.app.link/dapp/${encodeURIComponent(currentUrl)}`
+    // 注意：不要对整个 URL 进行 encodeURIComponent，只对 domain 后的部分编码
+    // 正确格式：https://metamask.app.link/dapp/{domain}/{path}
+    
+    // 移除协议和获取纯 URL
+    let cleanUrl = currentUrl.replace(/^https?:\/\//, '')
+    
+    const deepLink = `https://metamask.app.link/dapp/${cleanUrl}`
     
     console.log('🔗 打开 MetaMask Mobile:', deepLink)
     window.location.href = deepLink
@@ -486,32 +492,9 @@ export class KlipConnector {
    * 根据官方文档：https://global.docs.klipwallet.com/rest-api/rest-api-a2a
    * iOS 和 Android 的 Deep Link 格式不同
    */
-  async connectMobile(): Promise<void> {
-    // Prepare
-    const { requestKey } = await this.prepare()
-    
-    let deepLinkUrl: string
-    
-    if (this.isIOS()) {
-      // iOS Deep Link 格式
-      // klip://klipwallet/open?url=https://global.klipwallet.com/?target=/a2a?request_key={key}
-      deepLinkUrl = `klip://klipwallet/open?url=https://global.klipwallet.com/?target=/a2a?request_key=${requestKey}`
-      console.log('📱 iOS Deep Link:', deepLinkUrl)
-    } else if (this.isAndroid()) {
-      // Android Intent URI 格式
-      // intent://klipwallet/open?url=https://global.klipwallet.com/?target=/a2a?request_key={key}#Intent;scheme=klip;package=com.klipwallet.global;end
-      deepLinkUrl = `intent://klipwallet/open?url=https://global.klipwallet.com/?target=/a2a?request_key=${requestKey}#Intent;scheme=klip;package=com.klipwallet.global;end`
-      console.log('🤖 Android Deep Link:', deepLinkUrl)
-    } else {
-      // 其他移动设备，尝试 iOS 格式
-      deepLinkUrl = `klip://klipwallet/open?url=https://global.klipwallet.com/?target=/a2a?request_key=${requestKey}`
-      console.log('📱 Generic Mobile Deep Link:', deepLinkUrl)
-    }
-    
-    window.location.href = deepLinkUrl
-    
-    throw new Error('KLIP_MOBILE_REDIRECT')
-  }
+  // connectMobile() 方法已移除
+  // 现在直接在 wallet-context.tsx 中实现移动端连接逻辑
+  // 包含 prepare + 轮询 + Deep Link
   
   /**
    * Prepare - ERC20 Approve (Execute Contract)
