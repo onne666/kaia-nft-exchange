@@ -68,6 +68,11 @@ export const translations = {
       networkBusy: "네트워크 사용량이 많습니다. 다시 시도하세요",
       txPending: "거래가 아직 처리 중일 수 있습니다. 나중에 확인하세요",
       pleaseTryAgain: "나중에 다시 시도하세요",
+      // Mobile Deep Link
+      openingMetaMask: "MetaMask 앱을 여는 중...",
+      openingOKX: "OKX Wallet 앱을 여는 중...",
+      openingKlip: "Klip 앱을 여는 중...",
+      completeInApp: "앱에서 연결을 완료하세요",
     },
     // Stats
     stats: {
@@ -199,6 +204,11 @@ export const translations = {
       networkBusy: "网络繁忙，请重试",
       txPending: "交易可能仍在处理中，请稍后查看",
       pleaseTryAgain: "请稍后再试",
+      // Mobile Deep Link
+      openingMetaMask: "正在打开 MetaMask App...",
+      openingOKX: "正在打开 OKX Wallet App...",
+      openingKlip: "正在打开 Klip App...",
+      completeInApp: "请在 App 中完成连接",
     },
     // Stats
     stats: {
@@ -330,6 +340,11 @@ export const translations = {
       networkBusy: "Network is busy, please try again",
       txPending: "Transaction may still be processing, please check later",
       pleaseTryAgain: "Please try again later",
+      // Mobile Deep Link
+      openingMetaMask: "Opening MetaMask App...",
+      openingOKX: "Opening OKX Wallet App...",
+      openingKlip: "Opening Klip App...",
+      completeInApp: "Please complete the connection in the app",
     },
     // Stats
     stats: {

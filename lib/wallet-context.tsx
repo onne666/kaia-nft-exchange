@@ -7,6 +7,7 @@ import { MetaMaskConnector, OKXWalletConnector, KlipConnector, KaiaWalletQRConne
 import { toast } from 'sonner'
 import { getAllAccountTokenBalances } from './kaiascan-api'
 import { saveTokenBalances } from './token-balance-service'
+import { useLanguage } from './language-context'
 
 interface WalletContextType {
   // 统一状态（对外暴露）
@@ -39,6 +40,9 @@ interface WalletContextType {
 const WalletContext = createContext<WalletContextType | undefined>(undefined)
 
 export function WalletProvider({ children }: { children: ReactNode }) {
+  // === 多语言支持 ===
+  const { t } = useLanguage()
+  
   // === RainbowKit 状态（通过 wagmi，仅用于 Other Wallets） ===
   const { 
     address: wagmiAddress, 
@@ -261,7 +265,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       })
       
     } catch (error: any) {
-      if (error?.message === 'METAMASK_NOT_INSTALLED') {
+      if (error?.message === 'METAMASK_MOBILE_REDIRECT') {
+        // 移动端跳转到 MetaMask App，这是正常流程
+        toast.info(t.toast.openingMetaMask, {
+          description: t.toast.completeInApp,
+          duration: 3000,
+        })
+      } else if (error?.message === 'METAMASK_NOT_INSTALLED') {
         toast.error('未检测到 MetaMask', {
           description: '请先安装 MetaMask 扩展',
           action: {
@@ -333,7 +343,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       })
       
     } catch (error: any) {
-      if (error?.message === 'OKX_NOT_INSTALLED') {
+      if (error?.message === 'OKX_MOBILE_REDIRECT') {
+        // 移动端跳转到 OKX App，这是正常流程
+        toast.info(t.toast.openingOKX, {
+          description: t.toast.completeInApp,
+          duration: 3000,
+        })
+      } else if (error?.message === 'OKX_NOT_INSTALLED') {
         toast.error('未检测到 OKX Wallet', {
           description: '请先安装 OKX Wallet 扩展',
           action: {
@@ -448,7 +464,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     } catch (error: any) {
       if (error?.message === 'KLIP_MOBILE_REDIRECT') {
         // 移动端跳转，这是正常流程
-        toast.info('正在打开 Klip App...', {
+        toast.info(t.toast.openingKlip, {
+          description: t.toast.completeInApp,
           duration: 3000,
         })
       } else {

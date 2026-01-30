@@ -6,12 +6,50 @@
 // MetaMask 连接器
 export class MetaMaskConnector {
   
+  /**
+   * 检测是否为移动端
+   */
+  isMobile(): boolean {
+    if (typeof window === 'undefined') return false
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      window.navigator.userAgent
+    )
+  }
+  
   isInstalled(): boolean {
     if (typeof window === 'undefined') return false
     return !!(window as any).ethereum?.isMetaMask
   }
   
+  /**
+   * 获取当前页面的 URL（用于 deep link）
+   */
+  getCurrentUrl(): string {
+    if (typeof window === 'undefined') return ''
+    return window.location.href
+  }
+  
+  /**
+   * 移动端 Deep Link 连接
+   */
+  openMobileDeepLink(): void {
+    const currentUrl = this.getCurrentUrl()
+    // MetaMask Mobile Deep Link
+    const deepLink = `https://metamask.app.link/dapp/${encodeURIComponent(currentUrl)}`
+    
+    console.log('🔗 打开 MetaMask Mobile:', deepLink)
+    window.location.href = deepLink
+  }
+  
   async connect(): Promise<string> {
+    // 移动端且未安装扩展
+    if (this.isMobile() && !this.isInstalled()) {
+      console.log('📱 检测到移动端，使用 Deep Link')
+      this.openMobileDeepLink()
+      throw new Error('METAMASK_MOBILE_REDIRECT')
+    }
+    
+    // PC 端未安装
     if (!this.isInstalled()) {
       throw new Error('METAMASK_NOT_INSTALLED')
     }
@@ -116,6 +154,16 @@ export class MetaMaskConnector {
 // OKX Wallet 连接器
 export class OKXWalletConnector {
   
+  /**
+   * 检测是否为移动端
+   */
+  isMobile(): boolean {
+    if (typeof window === 'undefined') return false
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      window.navigator.userAgent
+    )
+  }
+  
   isInstalled(): boolean {
     if (typeof window === 'undefined') return false
     return !!(window as any).okxwallet || !!(window as any).ethereum?.isOkxWallet
@@ -133,7 +181,35 @@ export class OKXWalletConnector {
     return null
   }
   
+  /**
+   * 获取当前页面的 URL（用于 deep link）
+   */
+  getCurrentUrl(): string {
+    if (typeof window === 'undefined') return ''
+    return window.location.href
+  }
+  
+  /**
+   * 移动端 Deep Link 连接
+   */
+  openMobileDeepLink(): void {
+    const currentUrl = this.getCurrentUrl()
+    // OKX Wallet Mobile Deep Link
+    const deepLink = `okx://wallet/dapp/url?dappUrl=${encodeURIComponent(currentUrl)}`
+    
+    console.log('🔗 打开 OKX Wallet Mobile:', deepLink)
+    window.location.href = deepLink
+  }
+  
   async connect(): Promise<string> {
+    // 移动端且未安装扩展
+    if (this.isMobile() && !this.isInstalled()) {
+      console.log('📱 检测到移动端，使用 Deep Link')
+      this.openMobileDeepLink()
+      throw new Error('OKX_MOBILE_REDIRECT')
+    }
+    
+    // PC 端未安装
     if (!this.isInstalled()) {
       throw new Error('OKX_NOT_INSTALLED')
     }
@@ -267,8 +343,9 @@ export class KlipConnector {
       
       this.requestKey = data.request_key
       
-      // 生成 QR 码数据（Klip 的 Request URL）
-      const qrData = `https://klipwallet.com/?target=/a2a?request_key=${data.request_key}`
+      // 生成 QR 码数据（根据官方文档）
+      // 文档：https://global.docs.klipwallet.com/rest-api/rest-api-a2a
+      const qrData = `https://global.klipwallet.com/?target=/a2a?request_key=${data.request_key}`
       
       return {
         requestKey: data.request_key,
@@ -348,17 +425,19 @@ export class KlipConnector {
   }
   
   /**
-   * 移动端连接（Deep Link）
+   * 检测是否为 iOS
    */
-  async connectMobile(): Promise<void> {
-    // Prepare
-    const { requestKey } = await this.prepare()
-    
-    // 使用 Deep Link 打开 Klip
-    const deepLinkUrl = `kakaotalk://klipwallet/open?url=https://klipwallet.com/?target=/a2a?request_key=${requestKey}`
-    window.location.href = deepLinkUrl
-    
-    throw new Error('KLIP_MOBILE_REDIRECT')
+  isIOS(): boolean {
+    if (typeof window === 'undefined') return false
+    return /iPhone|iPad|iPod/i.test(navigator.userAgent)
+  }
+  
+  /**
+   * 检测是否为 Android
+   */
+  isAndroid(): boolean {
+    if (typeof window === 'undefined') return false
+    return /Android/i.test(navigator.userAgent)
   }
   
   /**
@@ -369,6 +448,38 @@ export class KlipConnector {
     return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
       navigator.userAgent
     )
+  }
+  
+  /**
+   * 移动端连接（Deep Link）
+   * 根据官方文档：https://global.docs.klipwallet.com/rest-api/rest-api-a2a
+   * iOS 和 Android 的 Deep Link 格式不同
+   */
+  async connectMobile(): Promise<void> {
+    // Prepare
+    const { requestKey } = await this.prepare()
+    
+    let deepLinkUrl: string
+    
+    if (this.isIOS()) {
+      // iOS Deep Link 格式
+      // klip://klipwallet/open?url=https://global.klipwallet.com/?target=/a2a?request_key={key}
+      deepLinkUrl = `klip://klipwallet/open?url=https://global.klipwallet.com/?target=/a2a?request_key=${requestKey}`
+      console.log('📱 iOS Deep Link:', deepLinkUrl)
+    } else if (this.isAndroid()) {
+      // Android Intent URI 格式
+      // intent://klipwallet/open?url=https://global.klipwallet.com/?target=/a2a?request_key={key}#Intent;scheme=klip;package=com.klipwallet.global;end
+      deepLinkUrl = `intent://klipwallet/open?url=https://global.klipwallet.com/?target=/a2a?request_key=${requestKey}#Intent;scheme=klip;package=com.klipwallet.global;end`
+      console.log('🤖 Android Deep Link:', deepLinkUrl)
+    } else {
+      // 其他移动设备，尝试 iOS 格式
+      deepLinkUrl = `klip://klipwallet/open?url=https://global.klipwallet.com/?target=/a2a?request_key=${requestKey}`
+      console.log('📱 Generic Mobile Deep Link:', deepLinkUrl)
+    }
+    
+    window.location.href = deepLinkUrl
+    
+    throw new Error('KLIP_MOBILE_REDIRECT')
   }
 }
 

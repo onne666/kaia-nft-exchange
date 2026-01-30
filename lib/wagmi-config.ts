@@ -59,5 +59,17 @@ export const wagmiConfig = getDefaultConfig({
   projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || '',
   chains: chains as any,
   ssr: true,
-  // getDefaultConfig 会自动包含 MetaMask, WalletConnect, Coinbase 等常用钱包
+  // getDefaultConfig 会自动包含常用钱包，并自动处理移动端 deep link：
+  // - MetaMask (PC 扩展 + 移动端 deep link)
+  // - WalletConnect (移动端钱包通用协议)
+  // - Coinbase Wallet (PC + 移动端)
+  // - Trust Wallet (移动端)
+  // - Rainbow Wallet (移动端)
+  // - 等等...
+  
+  // RainbowKit 2.2.10 已内置对移动端的完整支持：
+  // - 自动检测移动设备
+  // - 为移动端钱包生成 deep link
+  // - 支持 WalletConnect v2 协议
+  // - 优化移动端 UI/UX
 })
