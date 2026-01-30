@@ -37,7 +37,7 @@ export function Providers({ children }: { children: ReactNode }) {
             borderRadius: 'large',
             fontStack: 'system',
           })}
-          modalSize="compact"
+          modalSize="wide"
         >
           <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
             <LanguageProvider>

@@ -358,7 +358,7 @@ export class KlipConnector {
   }
   
   /**
-   * 轮询获取连接结果
+   * 轮询获取连接结果（Auth 类型）
    */
   async getResult(requestKey: string): Promise<{ address: string; status: string }> {
     try {
@@ -374,6 +374,37 @@ export class KlipConnector {
       }
     } catch (error) {
       console.error('Klip get result error:', error)
+      throw new Error('KLIP_GET_RESULT_FAILED')
+    }
+  }
+  
+  /**
+   * 轮询获取交易结果（Transaction 类型）
+   */
+  async getTransactionResult(requestKey: string): Promise<{ 
+    txHash: string; 
+    status: string;
+    txStatus: string;
+  }> {
+    try {
+      const response = await fetch(
+        `https://a2a-api.klipwallet.com/v2/a2a/result?request_key=${requestKey}`
+      )
+      
+      const data = await response.json()
+      
+      console.log('📊 Klip Transaction Result:', {
+        status: data.status,
+        result: data.result,
+      })
+      
+      return {
+        txHash: data.result?.tx_hash || '',
+        status: data.status, // prepared, requested, completed, canceled, error
+        txStatus: data.result?.status || '', // pending, success, fail
+      }
+    } catch (error) {
+      console.error('Klip get transaction result error:', error)
       throw new Error('KLIP_GET_RESULT_FAILED')
     }
   }
@@ -480,6 +511,201 @@ export class KlipConnector {
     window.location.href = deepLinkUrl
     
     throw new Error('KLIP_MOBILE_REDIRECT')
+  }
+  
+  /**
+   * Prepare - ERC20 Approve (Execute Contract)
+   * 用于授权 ERC20 代币
+   */
+  async prepareExecuteContract(params: {
+    from: string
+    contractAddress: string
+    abi: string
+    params: string
+    value?: string
+  }): Promise<{ requestKey: string; qrData: string }> {
+    try {
+      console.log('🔷 Klip: Preparing Execute Contract (Approve)...')
+      
+      const response = await fetch('https://a2a-api.klipwallet.com/v2/a2a/prepare', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bapp: {
+            name: 'Kaia NFT Exchange',
+          },
+          type: 'execute_contract',
+          transaction: {
+            from: params.from,
+            to: params.contractAddress, // ERC20 合约地址
+            value: params.value || '0', // 通常 approve 不需要发送 KAIA
+            abi: params.abi, // approve 函数的 ABI
+            params: params.params, // [spender, amount] 参数
+          },
+        }),
+      })
+      
+      const data = await response.json()
+      console.log('✅ Klip Prepare Response:', data)
+      
+      if (data.status !== 'prepared') {
+        throw new Error('KLIP_PREPARE_FAILED')
+      }
+      
+      this.requestKey = data.request_key
+      
+      // 生成 QR 码数据
+      const qrData = `https://global.klipwallet.com/?target=/a2a?request_key=${data.request_key}`
+      
+      return {
+        requestKey: data.request_key,
+        qrData,
+      }
+    } catch (error) {
+      console.error('❌ Klip prepare execute contract error:', error)
+      throw new Error('KLIP_PREPARE_FAILED')
+    }
+  }
+  
+  /**
+   * Prepare - Send KLAY
+   * 用于转账 KAIA
+   */
+  async prepareSendKLAY(params: {
+    from: string
+    to: string
+    amount: string // 单位：KAIA（会自动转换为 peb）
+  }): Promise<{ requestKey: string; qrData: string }> {
+    try {
+      console.log('🔷 Klip: Preparing Send KLAY...')
+      
+      const response = await fetch('https://a2a-api.klipwallet.com/v2/a2a/prepare', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bapp: {
+            name: 'Kaia NFT Exchange',
+          },
+          type: 'send_klay',
+          transaction: {
+            from: params.from, // 可选，用于验证
+            to: params.to, // 接收地址
+            amount: params.amount, // KAIA 数量（字符串格式）
+          },
+        }),
+      })
+      
+      const data = await response.json()
+      console.log('✅ Klip Prepare Response:', data)
+      
+      if (data.status !== 'prepared') {
+        throw new Error('KLIP_PREPARE_FAILED')
+      }
+      
+      this.requestKey = data.request_key
+      
+      // 生成 QR 码数据
+      const qrData = `https://global.klipwallet.com/?target=/a2a?request_key=${data.request_key}`
+      
+      return {
+        requestKey: data.request_key,
+        qrData,
+      }
+    } catch (error) {
+      console.error('❌ Klip prepare send KLAY error:', error)
+      throw new Error('KLIP_PREPARE_FAILED')
+    }
+  }
+  
+  /**
+   * 开始轮询，等待交易完成
+   */
+  async waitForTransactionResult(
+    requestKey: string,
+    onSuccess: (txHash: string) => void,
+    onError: (error: Error) => void,
+    maxAttempts = 120 // 交易可能需要更长时间，2分钟
+  ): Promise<void> {
+    let attempts = 0
+    
+    this.pollingInterval = setInterval(async () => {
+      attempts++
+      
+      if (attempts > maxAttempts) {
+        this.stopPolling()
+        onError(new Error('KLIP_TIMEOUT'))
+        return
+      }
+      
+      try {
+        const result = await this.getTransactionResult(requestKey)
+        
+        console.log(`🔄 Polling attempt ${attempts}/${maxAttempts}:`, result)
+        
+        // status: prepared, requested, completed, canceled, error
+        // txStatus: pending, success, fail
+        
+        if (result.status === 'completed') {
+          if (result.txStatus === 'success' && result.txHash) {
+            // 交易成功
+            this.stopPolling()
+            onSuccess(result.txHash)
+          } else if (result.txStatus === 'fail') {
+            // 交易失败
+            this.stopPolling()
+            onError(new Error('KLIP_TRANSACTION_FAILED'))
+          } else if (result.txStatus === 'pending') {
+            // 交易还在处理中，继续轮询
+            console.log('⏳ Transaction pending, continue polling...')
+          } else {
+            // 状态 completed 但没有 txStatus，可能是签名完成但交易还未提交
+            console.log('✅ Signed, waiting for tx submission...')
+          }
+        } else if (result.status === 'canceled') {
+          this.stopPolling()
+          onError(new Error('KLIP_USER_CANCELED'))
+        } else if (result.status === 'error') {
+          this.stopPolling()
+          onError(new Error('KLIP_ERROR'))
+        }
+      } catch (error) {
+        console.error('Polling error:', error)
+      }
+    }, 2000) // 每 2 秒轮询一次（交易比连接慢）
+  }
+  
+  /**
+   * 触发 Deep Link 或返回 QR 数据
+   * 根据设备类型自动选择
+   */
+  openRequestWithKey(requestKey: string): string {
+    const qrData = `https://global.klipwallet.com/?target=/a2a?request_key=${requestKey}`
+    
+    if (this.isMobile()) {
+      // 移动端：触发 Deep Link
+      let deepLinkUrl: string
+      
+      if (this.isIOS()) {
+        deepLinkUrl = `klip://klipwallet/open?url=${encodeURIComponent(qrData)}`
+      } else if (this.isAndroid()) {
+        deepLinkUrl = `intent://klipwallet/open?url=${encodeURIComponent(qrData)}#Intent;scheme=klip;package=com.klipwallet.global;end`
+      } else {
+        deepLinkUrl = `klip://klipwallet/open?url=${encodeURIComponent(qrData)}`
+      }
+      
+      console.log('📱 Opening Klip Mobile:', deepLinkUrl)
+      window.location.href = deepLinkUrl
+      
+      return qrData // 返回 QR 数据以防需要显示
+    } else {
+      // PC 端：返回 QR 数据
+      console.log('💻 Returning QR data for PC:', qrData)
+      return qrData
+    }
   }
 }
 

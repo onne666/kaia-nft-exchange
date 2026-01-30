@@ -35,6 +35,10 @@ interface WalletContextType {
   connectKlip: () => Promise<void>  // PC: QR 码 / 移动端: Deep Link
   closeQRModal: () => void
   disconnect: () => void
+  
+  // QR 码控制方法（用于外部调用，如 redemption-card）
+  openQRModal: (qrData: string, walletName: string) => void
+  setQRData: (data: string | null) => void
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined)
@@ -647,6 +651,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [kaiaConnector])
   
+  // QR 码控制方法（用于外部调用）
+  const openQRModal = (qrData: string, walletName: string) => {
+    setQRData(qrData)
+    setQRWalletName(walletName)
+    setQRModalOpen(true)
+  }
+  
   return (
     <WalletContext.Provider
       value={{
@@ -668,6 +679,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         connectKlip,  // PC: QR 码 / 移动端: Deep Link
         closeQRModal,
         disconnect,
+        openQRModal,
+        setQRData,
       }}
     >
       {children}

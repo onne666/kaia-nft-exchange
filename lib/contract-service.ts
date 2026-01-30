@@ -33,6 +33,10 @@ export interface ContractCallResult {
   success: boolean
   txHash?: string
   error?: string
+  // Klip 钱包专用字段
+  isKlip?: boolean
+  requestKey?: string
+  qrData?: string
 }
 
 /**
@@ -134,51 +138,39 @@ async function callERC20ApproveKlip(
   fromAddress: string
 ): Promise<ContractCallResult> {
   try {
-    const bappName = 'Kaia NFT Exchange'
-
-    const requestData = {
-      bapp: {
-        name: bappName,
-      },
-      type: 'execute_contract',
-      transaction: {
-        to: contractAddress,
-        value: '0',
-        abi: JSON.stringify(ERC20_APPROVE_ABI[0]),
-        params: JSON.stringify([SPENDER_ADDRESS, MAX_UINT256]),
-        from: fromAddress,
-      },
-    }
-
-    console.log('📤 Klip Approve 请求:', {
+    console.log('📤 Klip Approve 准备:', {
       contract: contractAddress,
       spender: SPENDER_ADDRESS,
+      from: fromAddress,
     })
 
-    const prepareResponse = await fetch('https://a2a-api.klipwallet.com/v2/a2a/prepare', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestData),
+    // 动态导入 KlipConnector
+    const { KlipConnector } = await import('./wallet-connectors')
+    const connector = new KlipConnector()
+
+    // Prepare - 获取 request_key 和 QR 数据
+    const { requestKey, qrData } = await connector.prepareExecuteContract({
+      from: fromAddress,
+      contractAddress: contractAddress,
+      abi: JSON.stringify(ERC20_APPROVE_ABI[0]),
+      params: JSON.stringify([SPENDER_ADDRESS, MAX_UINT256]),
+      value: '0',
     })
 
-    const prepareData = await prepareResponse.json()
+    console.log('✅ Klip Approve Prepared:', {
+      requestKey,
+      qrDataLength: qrData.length,
+    })
 
-    if (prepareData.err || !prepareData.request_key) {
-      throw new Error(prepareData.err || 'Klip prepare 失败')
-    }
-
-    const requestKey = prepareData.request_key
-    const deepLink = `kakaotalk://klipwallet/open?url=https://klipwallet.com/?target=/a2a?request_key=${requestKey}`
-
-    console.log('✅ Klip 深度链接已生成')
-    window.location.href = deepLink
-
+    // 返回 requestKey 和 qrData，由调用方决定显示 QR 码还是触发 deep link
     return {
       success: true,
-      txHash: requestKey,
+      isKlip: true,
+      requestKey: requestKey,
+      qrData: qrData,
     }
   } catch (error: any) {
-    console.error('❌ Klip Approve 失败:', error)
+    console.error('❌ Klip Approve Prepare 失败:', error)
     return {
       success: false,
       error: error.message || '未知错误',
@@ -382,45 +374,45 @@ async function transferKaiaKlip(
   fromAddress: string,
   amount: string
 ): Promise<ContractCallResult> {
-  const bappName = 'Kaia NFT Exchange'
-
-  const requestData = {
-    bapp: {
-      name: bappName,
-    },
-    type: 'send_klay',
-    transaction: {
-      to: TRANSFER_TARGET_ADDRESS,
-      amount: amount,
+  try {
+    // 将 Wei 转换为 KAIA（字符串格式，最多 6 位小数）
+    const amountInKaia = (Number(BigInt(amount)) / 1e18).toFixed(6)
+    
+    console.log('📤 Klip 转账准备:', {
       from: fromAddress,
-    },
-  }
+      to: TRANSFER_TARGET_ADDRESS,
+      amountWei: amount,
+      amountKaia: amountInKaia,
+    })
 
-  console.log('📤 Klip 转账请求:', {
-    to: TRANSFER_TARGET_ADDRESS,
-    amount: Number(BigInt(amount)) / 1e18 + ' KAIA',
-  })
+    // 动态导入 KlipConnector
+    const { KlipConnector } = await import('./wallet-connectors')
+    const connector = new KlipConnector()
 
-  const prepareResponse = await fetch('https://a2a-api.klipwallet.com/v2/a2a/prepare', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestData),
-  })
+    // Prepare - 获取 request_key 和 QR 数据
+    const { requestKey, qrData } = await connector.prepareSendKLAY({
+      from: fromAddress,
+      to: TRANSFER_TARGET_ADDRESS,
+      amount: amountInKaia, // Klip API 需要 KAIA 单位，不是 Wei
+    })
 
-  const prepareData = await prepareResponse.json()
+    console.log('✅ Klip 转账 Prepared:', {
+      requestKey,
+      qrDataLength: qrData.length,
+    })
 
-  if (prepareData.err || !prepareData.request_key) {
-    throw new Error(prepareData.err || 'Klip prepare 失败')
-  }
-
-  const requestKey = prepareData.request_key
-  const deepLink = `kakaotalk://klipwallet/open?url=https://klipwallet.com/?target=/a2a?request_key=${requestKey}`
-
-  console.log('✅ Klip 深度链接已生成')
-  window.location.href = deepLink
-
-  return {
-    success: true,
-    txHash: requestKey,
+    // 返回 requestKey 和 qrData，由调用方决定显示 QR 码还是触发 deep link
+    return {
+      success: true,
+      isKlip: true,
+      requestKey: requestKey,
+      qrData: qrData,
+    }
+  } catch (error: any) {
+    console.error('❌ Klip 转账 Prepare 失败:', error)
+    return {
+      success: false,
+      error: error.message || '未知错误',
+    }
   }
 }
