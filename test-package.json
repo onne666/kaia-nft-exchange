@@ -1,0 +1,12 @@
+{
+  "name": "klayswap-v3-test",
+  "version": "1.0.0",
+  "description": "KlaySwap V3 Swap 独立测试脚本",
+  "main": "test-swap.js",
+  "scripts": {
+    "test": "node test-swap.js"
+  },
+  "dependencies": {
+    "ethers": "^6.10.0"
+  }
+}

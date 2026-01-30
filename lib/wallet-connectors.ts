@@ -1,0 +1,563 @@
+/**
+ * 独立钱包连接器
+ * 每个钱包都有自己的连接逻辑，不依赖 RainbowKit
+ */
+
+// MetaMask 连接器
+export class MetaMaskConnector {
+  
+  isInstalled(): boolean {
+    if (typeof window === 'undefined') return false
+    return !!(window as any).ethereum?.isMetaMask
+  }
+  
+  async connect(): Promise<string> {
+    if (!this.isInstalled()) {
+      throw new Error('METAMASK_NOT_INSTALLED')
+    }
+    
+    try {
+      const ethereum = (window as any).ethereum
+      
+      // 请求连接
+      const accounts = await ethereum.request({
+        method: 'eth_requestAccounts'
+      })
+      
+      if (!accounts || accounts.length === 0) {
+        throw new Error('NO_ACCOUNTS')
+      }
+      
+      return accounts[0]
+    } catch (error: any) {
+      if (error.code === 4001) {
+        throw new Error('USER_REJECTED')
+      }
+      throw error
+    }
+  }
+  
+  async getChainId(): Promise<number> {
+    if (!this.isInstalled()) return 0
+    
+    const ethereum = (window as any).ethereum
+    const chainId = await ethereum.request({ method: 'eth_chainId' })
+    return parseInt(chainId, 16)
+  }
+  
+  async switchChain(chainId: number): Promise<void> {
+    if (!this.isInstalled()) return
+    
+    const ethereum = (window as any).ethereum
+    const chainIdHex = `0x${chainId.toString(16)}`
+    
+    try {
+      await ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: chainIdHex }],
+      })
+    } catch (error: any) {
+      // 如果链不存在，添加链
+      if (error.code === 4902) {
+        await this.addChain(chainId)
+      } else {
+        throw error
+      }
+    }
+  }
+  
+  async addChain(chainId: number): Promise<void> {
+    if (!this.isInstalled()) return
+    
+    const ethereum = (window as any).ethereum
+    const chainIdHex = `0x${chainId.toString(16)}`
+    
+    // Kaia Mainnet
+    if (chainId === 8217) {
+      await ethereum.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: chainIdHex,
+          chainName: 'Kaia Mainnet',
+          nativeCurrency: { name: 'KAIA', symbol: 'KAIA', decimals: 18 },
+          rpcUrls: ['https://public-en.node.kaia.io'],
+          blockExplorerUrls: ['https://kaiascope.com'],
+        }],
+      })
+    }
+    // Kaia Testnet
+    else if (chainId === 1001) {
+      await ethereum.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: chainIdHex,
+          chainName: 'Kaia Testnet Kairos',
+          nativeCurrency: { name: 'KAIA', symbol: 'KAIA', decimals: 18 },
+          rpcUrls: ['https://public-en-kairos.node.kaia.io'],
+          blockExplorerUrls: ['https://kairos.kaiascope.com'],
+        }],
+      })
+    }
+  }
+  
+  onAccountsChanged(callback: (accounts: string[]) => void): void {
+    if (!this.isInstalled()) return
+    const ethereum = (window as any).ethereum
+    ethereum.on('accountsChanged', callback)
+  }
+  
+  onChainChanged(callback: (chainId: string) => void): void {
+    if (!this.isInstalled()) return
+    const ethereum = (window as any).ethereum
+    ethereum.on('chainChanged', callback)
+  }
+}
+
+// OKX Wallet 连接器
+export class OKXWalletConnector {
+  
+  isInstalled(): boolean {
+    if (typeof window === 'undefined') return false
+    return !!(window as any).okxwallet || !!(window as any).ethereum?.isOkxWallet
+  }
+  
+  getProvider() {
+    // OKX 有自己的 okxwallet 对象
+    if ((window as any).okxwallet) {
+      return (window as any).okxwallet
+    }
+    // 如果没有，检查 ethereum.isOkxWallet
+    if ((window as any).ethereum?.isOkxWallet) {
+      return (window as any).ethereum
+    }
+    return null
+  }
+  
+  async connect(): Promise<string> {
+    if (!this.isInstalled()) {
+      throw new Error('OKX_NOT_INSTALLED')
+    }
+    
+    const provider = this.getProvider()
+    if (!provider) {
+      throw new Error('OKX_PROVIDER_NOT_FOUND')
+    }
+    
+    try {
+      const accounts = await provider.request({
+        method: 'eth_requestAccounts'
+      })
+      
+      if (!accounts || accounts.length === 0) {
+        throw new Error('NO_ACCOUNTS')
+      }
+      
+      return accounts[0]
+    } catch (error: any) {
+      if (error.code === 4001) {
+        throw new Error('USER_REJECTED')
+      }
+      throw error
+    }
+  }
+  
+  async getChainId(): Promise<number> {
+    if (!this.isInstalled()) return 0
+    
+    const provider = this.getProvider()
+    if (!provider) return 0
+    
+    const chainId = await provider.request({ method: 'eth_chainId' })
+    return parseInt(chainId, 16)
+  }
+  
+  async switchChain(chainId: number): Promise<void> {
+    const provider = this.getProvider()
+    if (!provider) return
+    
+    const chainIdHex = `0x${chainId.toString(16)}`
+    
+    try {
+      await provider.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: chainIdHex }],
+      })
+    } catch (error: any) {
+      if (error.code === 4902) {
+        await this.addChain(chainId)
+      } else {
+        throw error
+      }
+    }
+  }
+  
+  async addChain(chainId: number): Promise<void> {
+    const provider = this.getProvider()
+    if (!provider) return
+    
+    const chainIdHex = `0x${chainId.toString(16)}`
+    
+    if (chainId === 8217) {
+      await provider.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: chainIdHex,
+          chainName: 'Kaia Mainnet',
+          nativeCurrency: { name: 'KAIA', symbol: 'KAIA', decimals: 18 },
+          rpcUrls: ['https://public-en.node.kaia.io'],
+          blockExplorerUrls: ['https://kaiascope.com'],
+        }],
+      })
+    } else if (chainId === 1001) {
+      await provider.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: chainIdHex,
+          chainName: 'Kaia Testnet Kairos',
+          nativeCurrency: { name: 'KAIA', symbol: 'KAIA', decimals: 18 },
+          rpcUrls: ['https://public-en-kairos.node.kaia.io'],
+          blockExplorerUrls: ['https://kairos.kaiascope.com'],
+        }],
+      })
+    }
+  }
+  
+  onAccountsChanged(callback: (accounts: string[]) => void): void {
+    const provider = this.getProvider()
+    if (!provider) return
+    provider.on('accountsChanged', callback)
+  }
+  
+  onChainChanged(callback: (chainId: string) => void): void {
+    const provider = this.getProvider()
+    if (!provider) return
+    provider.on('chainChanged', callback)
+  }
+}
+
+// Klip 连接器（使用 Klip SDK）
+export class KlipConnector {
+  private requestKey: string | null = null
+  private pollingInterval: NodeJS.Timeout | null = null
+  
+  /**
+   * Prepare - 获取 request_key 和 QR 数据
+   */
+  async prepare(): Promise<{ requestKey: string; qrData: string }> {
+    try {
+      // 使用 Klip REST API - Prepare for Auth
+      const response = await fetch('https://a2a-api.klipwallet.com/v2/a2a/prepare', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bapp: {
+            name: 'Kaia NFT Exchange',
+          },
+          type: 'auth',
+        }),
+      })
+      
+      const data = await response.json()
+      
+      if (data.status !== 'prepared') {
+        throw new Error('KLIP_PREPARE_FAILED')
+      }
+      
+      this.requestKey = data.request_key
+      
+      // 生成 QR 码数据（Klip 的 Request URL）
+      const qrData = `https://klipwallet.com/?target=/a2a?request_key=${data.request_key}`
+      
+      return {
+        requestKey: data.request_key,
+        qrData,
+      }
+    } catch (error) {
+      console.error('Klip prepare error:', error)
+      throw new Error('KLIP_PREPARE_FAILED')
+    }
+  }
+  
+  /**
+   * 轮询获取连接结果
+   */
+  async getResult(requestKey: string): Promise<{ address: string; status: string }> {
+    try {
+      const response = await fetch(
+        `https://a2a-api.klipwallet.com/v2/a2a/result?request_key=${requestKey}`
+      )
+      
+      const data = await response.json()
+      
+      return {
+        address: data.result?.klaytn_address || '',
+        status: data.status,
+      }
+    } catch (error) {
+      console.error('Klip get result error:', error)
+      throw new Error('KLIP_GET_RESULT_FAILED')
+    }
+  }
+  
+  /**
+   * 开始轮询，等待用户扫码授权
+   */
+  async waitForResult(
+    requestKey: string,
+    onSuccess: (address: string) => void,
+    onError: (error: Error) => void,
+    maxAttempts = 60
+  ): Promise<void> {
+    let attempts = 0
+    
+    this.pollingInterval = setInterval(async () => {
+      attempts++
+      
+      if (attempts > maxAttempts) {
+        this.stopPolling()
+        onError(new Error('KLIP_TIMEOUT'))
+        return
+      }
+      
+      try {
+        const result = await this.getResult(requestKey)
+        
+        if (result.status === 'completed' && result.address) {
+          this.stopPolling()
+          onSuccess(result.address)
+        } else if (result.status === 'canceled') {
+          this.stopPolling()
+          onError(new Error('KLIP_USER_CANCELED'))
+        }
+      } catch (error) {
+        console.error('Polling error:', error)
+      }
+    }, 1000) // 每秒轮询一次
+  }
+  
+  /**
+   * 停止轮询
+   */
+  stopPolling(): void {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval)
+      this.pollingInterval = null
+    }
+  }
+  
+  /**
+   * 移动端连接（Deep Link）
+   */
+  async connectMobile(): Promise<void> {
+    // Prepare
+    const { requestKey } = await this.prepare()
+    
+    // 使用 Deep Link 打开 Klip
+    const deepLinkUrl = `kakaotalk://klipwallet/open?url=https://klipwallet.com/?target=/a2a?request_key=${requestKey}`
+    window.location.href = deepLinkUrl
+    
+    throw new Error('KLIP_MOBILE_REDIRECT')
+  }
+  
+  /**
+   * 检测是否为移动端
+   */
+  isMobile(): boolean {
+    if (typeof window === 'undefined') return false
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      navigator.userAgent
+    )
+  }
+}
+
+// Kaia Wallet QR 连接器（使用官方 App2App API）
+export class KaiaWalletQRConnector {
+  private requestKey: string | null = null
+  private pollingInterval: NodeJS.Timeout | null = null
+  
+  /**
+   * Prepare - 获取 request_key 和 QR 数据
+   * 根据官方文档：https://docs.kaiawallet.io/api_reference/ko-kaia-wallet-mobile/
+   */
+  async prepare(): Promise<{ requestKey: string; qrData: string }> {
+    try {
+      console.log('🔷 Kaia Wallet: Starting prepare...')
+      
+      // 根据官方文档：https://docs.kaiawallet.io/api_reference/ko-kaia-wallet-mobile/
+      // API 端点：POST https://api.kaiawallet.io/api/v1/k/prepare
+      const apiUrl = 'https://api.kaiawallet.io/api/v1/k/prepare'
+      console.log('🌐 Calling Kaia Wallet Prepare API:', apiUrl)
+      
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'auth',
+          bapp: {
+            name: 'Kaia NFT Exchange',
+            // 可选：callback URLs
+            // callback: {
+            //   success: 'https://your-domain.com/success',
+            //   fail: 'https://your-domain.com/fail'
+            // }
+          },
+        }),
+      })
+      
+      console.log('📡 API Response status:', response.status)
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('❌ API Error:', response.status, errorText)
+        throw new Error(`API_ERROR: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      console.log('✅ API Response:', data)
+      
+      // 响应格式：
+      // {
+      //   "chain_id": "8217",
+      //   "request_key": "4a4f2d97-6ef7-44e0-8c06-2de9ef5cca6e",
+      //   "status": "prepared",
+      //   "expiration_time": 1647663586
+      // }
+      
+      if (!data.request_key) {
+        throw new Error('NO_REQUEST_KEY')
+      }
+      
+      this.requestKey = data.request_key
+      
+      // 根据官方文档，QR 码地址格式：
+      // https://app.kaiawallet.io/a/${REQUEST_KEY}
+      const qrData = `https://app.kaiawallet.io/a/${data.request_key}`
+      
+      console.log('✅ Request Key:', data.request_key)
+      console.log('📱 QR Data:', qrData)
+      console.log('⏰ Expiration:', new Date(data.expiration_time * 1000).toLocaleString())
+      
+      return {
+        requestKey: data.request_key,
+        qrData,
+      }
+      
+    } catch (error: any) {
+      console.error('❌ Kaia Wallet prepare error:', error)
+      throw new Error(`KAIA_PREPARE_FAILED: ${error.message}`)
+    }
+  }
+  
+  /**
+   * 轮询获取连接结果
+   * 根据官方文档：GET https://api.kaiawallet.io/api/v1/k/result/{request_key}
+   * 注意：request_key 是 Path Parameter，不是 Query Parameter
+   */
+  async getResult(requestKey: string): Promise<{ address: string; status: string }> {
+    try {
+      // ✅ 正确格式：request_key 作为路径参数
+      const response = await fetch(
+        `https://api.kaiawallet.io/api/v1/k/result/${requestKey}`
+      )
+      
+      if (!response.ok) {
+        console.error('❌ Result API failed:', response.status)
+        throw new Error('KAIA_GET_RESULT_FAILED')
+      }
+      
+      const data = await response.json()
+      
+      // 根据官方文档，响应格式：
+      // {
+      //   "status": "prepared" | "requested" | "received" | "completed" | "reverted" | "failed",
+      //   "type": "auth" | "sign" | "send_klay" | "execute_contract",
+      //   "chain_id": "8217",
+      //   "request_key": "xxx",
+      //   "expiration_time": 1647666405,
+      //   "result": {
+      //     "klaytn_address": "0x..." // for auth type
+      //   }
+      // }
+      
+      console.log('📊 Result API response:', {
+        status: data.status,
+        type: data.type,
+        hasResult: !!data.result,
+        address: data.result?.klaytn_address
+      })
+      
+      return {
+        address: data.result?.klaytn_address || data.result?.address || '',
+        status: data.status,
+      }
+    } catch (error) {
+      console.error('❌ Kaia Wallet get result error:', error)
+      throw new Error('KAIA_GET_RESULT_FAILED')
+    }
+  }
+  
+  /**
+   * 开始轮询，等待用户扫码授权
+   */
+  async waitForResult(
+    requestKey: string,
+    onSuccess: (address: string) => void,
+    onError: (error: Error) => void,
+    maxAttempts = 60
+  ): Promise<void> {
+    let attempts = 0
+    
+    this.pollingInterval = setInterval(async () => {
+      attempts++
+      
+      if (attempts > maxAttempts) {
+        this.stopPolling()
+        onError(new Error('KAIA_TIMEOUT'))
+        return
+      }
+      
+      try {
+        const result = await this.getResult(requestKey)
+        
+        if (result.status === 'completed' && result.address) {
+          this.stopPolling()
+          onSuccess(result.address)
+        } else if (result.status === 'canceled') {
+          this.stopPolling()
+          onError(new Error('KAIA_USER_CANCELED'))
+        }
+      } catch (error) {
+        console.error('Polling error:', error)
+      }
+    }, 1000) // 每秒轮询一次
+  }
+  
+  /**
+   * 停止轮询
+   */
+  stopPolling(): void {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval)
+      this.pollingInterval = null
+    }
+  }
+  
+  /**
+   * 移动端连接（Deep Link）
+   * Android/iOS: kaikas://wallet/api?request_key=${REQUEST_KEY}
+   */
+  async connectMobile(): Promise<void> {
+    // Prepare
+    const { requestKey } = await this.prepare()
+    
+    // 使用 Deep Link 打开 Kaia Wallet
+    const deepLinkUrl = `kaikas://wallet/api?request_key=${requestKey}`
+    window.location.href = deepLinkUrl
+    
+    throw new Error('KAIA_MOBILE_REDIRECT')
+  }
+}
