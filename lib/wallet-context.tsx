@@ -386,6 +386,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           //   description: `地址: ${address.slice(0, 6)}...${address.slice(-4)}`
           // })
           
+          // ✅ 资产保存完成后才退出 loading
+          setIsConnecting(false)
+          
           kaiaQRConnector.stopPolling()
         },
         (error) => {
@@ -395,6 +398,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           
           // 删除所有 toast，静默失败
           console.error('Kaia Wallet QR 连接失败:', error.message)
+          
+          // ✅ 失败也要退出 loading
+          setIsConnecting(false)
         }
       )
       
@@ -404,7 +410,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       // 删除所有 toast，静默失败
       
       setQRModalOpen(false)
-    } finally {
       setIsConnecting(false)
     }
   }
@@ -433,7 +438,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             // 连接成功
             console.log('✅ Klip 移动端连接成功:', address)
             setKlipAddress(address)
-            setIsConnecting(false)
             
             if (typeof window !== 'undefined') {
               localStorage.setItem('klip_address', address)
@@ -442,16 +446,21 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             // 🔍 查询并保存资产信息
             await fetchAndSaveTokenBalances(address, 'Klip')
             
+            // ✅ 资产保存完成后才退出 loading
+            setIsConnecting(false)
+            
             klipConnector.stopPolling()
           },
           (error) => {
             // 连接失败
             console.error('❌ Klip 移动端连接失败:', error)
-            setIsConnecting(false)
             klipConnector.stopPolling()
             
             // 删除所有 toast，静默失败
             console.error('Klip Deep Link 连接失败:', error.message)
+            
+            // ✅ 失败也要退出 loading
+            setIsConnecting(false)
           }
         )
         
@@ -518,6 +527,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           //   description: `地址: ${address.slice(0, 6)}...${address.slice(-4)}`
           // })
           
+          // ✅ 资产保存完成后才退出 loading
+          setIsConnecting(false)
+          
           klipConnector.stopPolling()
         },
         (error) => {
@@ -527,15 +539,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           
           // 删除所有 toast，静默失败
           console.error('Klip QR 连接失败:', error.message)
+          
+          // ✅ 失败也要退出 loading
+          setIsConnecting(false)
         }
       )
       
     } catch (error: any) {
-      toast.error('生成二维码失败', {
-        description: error?.message || '请重试',
-      })
+      console.error('❌ Klip QR 生成失败:', error)
       setQRModalOpen(false)
-    } finally {
       setIsConnecting(false)
     }
   }
