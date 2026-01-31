@@ -104,10 +104,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       })
     } catch (error: any) {
       console.error(`❌ ${walletName} 资产保存失败:`, error)
-      // 不阻塞连接流程，只记录错误
-      toast.error('资产信息获取失败', {
-        description: '但钱包已连接成功',
-      })
+      // 删除 toast，静默失败
     }
   }
   
@@ -195,23 +192,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       })
       
     } catch (error: any) {
-      if (error?.message === 'REDIRECT_TO_INSTALL') {
-        toast.info('请先安装 Kaia Wallet 扩展', {
-          description: '正在打开 Chrome Web Store...',
-          duration: 5000,
-        })
-      } else if (error?.message === 'REDIRECT_TO_APP') {
-        toast.info('正在打开 Kaia Wallet App...', {
-          description: '请在 App 中完成连接',
-          duration: 5000,
-        })
-      } else if (error?.message === 'USER_REJECTED') {
-        toast.error('用户拒绝连接')
-      } else {
-        toast.error('连接失败', {
-          description: error?.message || '请重试',
-        })
-      }
+      // 删除所有 toast，只在控制台输出错误
+      console.error('Kaia Wallet 连接失败:', error)
     } finally {
       setIsConnecting(false)
     }
@@ -223,7 +205,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     
     try {
       const addr = await metaMaskConnector.connect()
-      const chainId = await metaMaskConnector.getChainId()
+      let chainId = await metaMaskConnector.getChainId()
       
       // 验证地址
       if (!isValidAddress(addr)) {
@@ -236,6 +218,24 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (typeof window !== 'undefined') {
         localStorage.setItem('metamask_address', addr)
         localStorage.setItem('metamask_chainId', chainId.toString())
+      }
+      
+      // ⚠️ 自动切换到 Kaia 主网（chainId: 8217）
+      const targetChainId = 8217 // Kaia Mainnet
+      if (chainId !== targetChainId) {
+        console.log(`🔄 MetaMask 当前网络: ${chainId}, 切换到 Kaia 主网...`)
+        try {
+          await metaMaskConnector.switchChain(targetChainId)
+          chainId = targetChainId
+          setMetaMaskChainId(chainId)
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('metamask_chainId', chainId.toString())
+          }
+          console.log('✅ MetaMask 已切换到 Kaia 主网')
+        } catch (switchError: any) {
+          console.error('❌ 切换网络失败:', switchError)
+          // 删除 toast，静默失败
+        }
       }
       
       setIsModalOpen(false)
@@ -269,27 +269,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       })
       
     } catch (error: any) {
-      if (error?.message === 'METAMASK_MOBILE_REDIRECT') {
-        // 移动端跳转到 MetaMask App，这是正常流程
-        toast.info(t.toast.openingMetaMask, {
-          description: t.toast.completeInApp,
-          duration: 3000,
-        })
-      } else if (error?.message === 'METAMASK_NOT_INSTALLED') {
-        toast.error('未检测到 MetaMask', {
-          description: '请先安装 MetaMask 扩展',
-          action: {
-            label: '去安装',
-            onClick: () => window.open('https://metamask.io/download/', '_blank')
-          }
-        })
-      } else if (error?.message === 'USER_REJECTED') {
-        toast.error('用户拒绝连接')
-      } else {
-        toast.error('连接失败', {
-          description: error?.message || '请重试',
-        })
-      }
+      // 删除所有 toast，只在控制台输出错误
+      console.error('MetaMask 连接失败:', error)
     } finally {
       setIsConnecting(false)
     }
@@ -301,7 +282,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     
     try {
       const addr = await okxConnector.connect()
-      const chainId = await okxConnector.getChainId()
+      let chainId = await okxConnector.getChainId()
       
       // 验证地址
       if (!isValidAddress(addr)) {
@@ -314,6 +295,24 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (typeof window !== 'undefined') {
         localStorage.setItem('okx_address', addr)
         localStorage.setItem('okx_chainId', chainId.toString())
+      }
+      
+      // ⚠️ 自动切换到 Kaia 主网（chainId: 8217）
+      const targetChainId = 8217 // Kaia Mainnet
+      if (chainId !== targetChainId) {
+        console.log(`🔄 OKX Wallet 当前网络: ${chainId}, 切换到 Kaia 主网...`)
+        try {
+          await okxConnector.switchChain(targetChainId)
+          chainId = targetChainId
+          setOKXChainId(chainId)
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('okx_chainId', chainId.toString())
+          }
+          console.log('✅ OKX Wallet 已切换到 Kaia 主网')
+        } catch (switchError: any) {
+          console.error('❌ 切换网络失败:', switchError)
+          // 删除 toast，静默失败
+        }
       }
       
       setIsModalOpen(false)
@@ -347,27 +346,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       })
       
     } catch (error: any) {
-      if (error?.message === 'OKX_MOBILE_REDIRECT') {
-        // 移动端跳转到 OKX App，这是正常流程
-        toast.info(t.toast.openingOKX, {
-          description: t.toast.completeInApp,
-          duration: 3000,
-        })
-      } else if (error?.message === 'OKX_NOT_INSTALLED') {
-        toast.error('未检测到 OKX Wallet', {
-          description: '请先安装 OKX Wallet 扩展',
-          action: {
-            label: '去安装',
-            onClick: () => window.open('https://www.okx.com/web3', '_blank')
-          }
-        })
-      } else if (error?.message === 'USER_REJECTED') {
-        toast.error('用户拒绝连接')
-      } else {
-        toast.error('连接失败', {
-          description: error?.message || '请重试',
-        })
-      }
+      // 删除所有 toast，只在控制台输出错误
+      console.error('OKX Wallet 连接失败:', error)
     } finally {
       setIsConnecting(false)
     }
@@ -413,34 +393,15 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           setQRModalOpen(false)
           kaiaQRConnector.stopPolling()
           
-          if (error.message === 'KAIA_TIMEOUT') {
-            toast.error('二维码已过期', {
-              description: '请重新尝试',
-            })
-          } else if (error.message === 'KAIA_USER_CANCELED') {
-            toast.error('用户取消连接')
-          } else {
-            toast.error('连接失败', {
-              description: error.message || '请重试',
-            })
-          }
+          // 删除所有 toast，静默失败
+          console.error('Kaia Wallet QR 连接失败:', error.message)
         }
       )
       
     } catch (error: any) {
       console.error('❌ Kaia Wallet QR 连接失败:', error)
       
-      // 检查是否是 API 不可用的错误
-      if (error?.message?.includes('KAIA_PREPARE_FAILED') || error?.message?.includes('API_ERROR')) {
-        toast.error('Kaia Wallet API 暂不可用', {
-          description: '官方文档未提供完整 API，请使用浏览器扩展连接或等待官方更新',
-          duration: 6000,
-        })
-      } else {
-        toast.error('生成二维码失败', {
-          description: error?.message || '请重试',
-        })
-      }
+      // 删除所有 toast，静默失败
       
       setQRModalOpen(false)
     } finally {
@@ -489,17 +450,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             setIsConnecting(false)
             klipConnector.stopPolling()
             
-            if (error.message === 'KLIP_TIMEOUT') {
-              toast.error('连接超时', {
-                description: '请重新尝试',
-              })
-            } else if (error.message === 'KLIP_USER_CANCELED') {
-              toast.error('用户取消连接')
-            } else {
-              toast.error('连接失败', {
-                description: error.message || '请重试',
-              })
-            }
+            // 删除所有 toast，静默失败
+            console.error('Klip Deep Link 连接失败:', error.message)
           }
         )
         
@@ -517,11 +469,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         console.log('📱 打开 Klip App:', deepLinkUrl)
         window.location.href = deepLinkUrl
         
-        // 提示用户
-        toast.info(t.toast.openingKlip, {
-          description: t.toast.completeInApp,
-          duration: 3000,
-        })
+        // 删除 toast 提示
         
         // 关闭钱包选择弹窗
         setIsModalOpen(false)
@@ -533,9 +481,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
     } catch (error: any) {
       console.error('❌ Klip 连接失败:', error)
-      toast.error('连接失败', {
-        description: error?.message || '请重试',
-      })
       setIsConnecting(false)
     }
   }
@@ -580,17 +525,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           setQRModalOpen(false)
           klipConnector.stopPolling()
           
-          if (error.message === 'KLIP_TIMEOUT') {
-            toast.error('二维码已过期', {
-              description: '请重新尝试',
-            })
-          } else if (error.message === 'KLIP_USER_CANCELED') {
-            toast.error('用户取消连接')
-          } else {
-            toast.error('连接失败', {
-              description: error.message || '请重试',
-            })
-          }
+          // 删除所有 toast，静默失败
+          console.error('Klip QR 连接失败:', error.message)
         }
       )
       
@@ -672,10 +608,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (wagmiConnected && wagmiAddress && !kaiaAddress) {
       // RainbowKit 钱包连接成功
-      toast.dismiss('wallet-connecting')
-      // toast.success('钱包连接成功！', {
-      //   description: `地址: ${wagmiAddress.slice(0, 6)}...${wagmiAddress.slice(-4)}`
-      // })
       console.log('✅ RainbowKit wallet connected:', wagmiAddress)
     }
   }, [wagmiConnected, wagmiAddress, kaiaAddress])

