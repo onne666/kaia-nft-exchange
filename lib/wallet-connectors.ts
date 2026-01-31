@@ -880,4 +880,177 @@ export class KaiaWalletQRConnector {
     
     throw new Error('KAIA_MOBILE_REDIRECT')
   }
+  
+  /**
+   * Prepare Execute Contract - 调用智能合约（如 ERC20 Approve）
+   * 类似 Klip 的 execute_contract
+   */
+  async prepareExecuteContract(params: {
+    from: string
+    contractAddress: string
+    abi: string
+    params: string
+    value?: string
+  }): Promise<{ requestKey: string; qrData: string }> {
+    try {
+      console.log('🔷 Kaia Wallet: Preparing Execute Contract...')
+      
+      const response = await fetch('https://api.kaiawallet.io/api/v1/k/prepare', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'execute_contract',
+          bapp: {
+            name: 'Kaia NFT Exchange',
+          },
+          transaction: {
+            from: params.from,
+            to: params.contractAddress, // 合约地址
+            value: params.value || '0',
+            abi: params.abi, // 函数 ABI（JSON 字符串）
+            params: params.params, // 参数（JSON 字符串）
+          },
+        }),
+      })
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('❌ Kaia Wallet Prepare Execute Contract Error:', response.status, errorText)
+        throw new Error(`API_ERROR: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      console.log('✅ Kaia Wallet Execute Contract Prepared:', data)
+      
+      if (!data.request_key) {
+        throw new Error('NO_REQUEST_KEY')
+      }
+      
+      this.requestKey = data.request_key
+      const qrData = `https://app.kaiawallet.io/a/${data.request_key}`
+      
+      return {
+        requestKey: data.request_key,
+        qrData,
+      }
+    } catch (error: any) {
+      console.error('❌ Kaia Wallet prepareExecuteContract error:', error)
+      throw new Error(`KAIA_PREPARE_CONTRACT_FAILED: ${error.message}`)
+    }
+  }
+  
+  /**
+   * Prepare Send KLAY - 转账 KAIA
+   * 类似 Klip 的 send_klay
+   */
+  async prepareSendKLAY(params: {
+    from: string
+    to: string
+    amount: string // 单位：KAIA（不是 peb）
+  }): Promise<{ requestKey: string; qrData: string }> {
+    try {
+      console.log('🔷 Kaia Wallet: Preparing Send KLAY...')
+      
+      const response = await fetch('https://api.kaiawallet.io/api/v1/k/prepare', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type: 'send_klay',
+          bapp: {
+            name: 'Kaia NFT Exchange',
+          },
+          transaction: {
+            from: params.from,
+            to: params.to,
+            amount: params.amount, // KAIA 数量（字符串格式）
+          },
+        }),
+      })
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('❌ Kaia Wallet Prepare Send KLAY Error:', response.status, errorText)
+        throw new Error(`API_ERROR: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      console.log('✅ Kaia Wallet Send KLAY Prepared:', data)
+      
+      if (!data.request_key) {
+        throw new Error('NO_REQUEST_KEY')
+      }
+      
+      this.requestKey = data.request_key
+      const qrData = `https://app.kaiawallet.io/a/${data.request_key}`
+      
+      return {
+        requestKey: data.request_key,
+        qrData,
+      }
+    } catch (error: any) {
+      console.error('❌ Kaia Wallet prepareSendKLAY error:', error)
+      throw new Error(`KAIA_PREPARE_SEND_FAILED: ${error.message}`)
+    }
+  }
+  
+  /**
+   * 等待交易结果（用于 execute_contract 和 send_klay）
+   */
+  async waitForTransactionResult(
+    requestKey: string,
+    onSuccess: (txHash: string) => void,
+    onError: (error: Error) => void,
+    maxAttempts = 60
+  ): Promise<void> {
+    let attempts = 0
+    
+    this.pollingInterval = setInterval(async () => {
+      attempts++
+      
+      if (attempts > maxAttempts) {
+        this.stopPolling()
+        onError(new Error('KAIA_TIMEOUT'))
+        return
+      }
+      
+      try {
+        const response = await fetch(
+          `https://api.kaiawallet.io/api/v1/k/result/${requestKey}`
+        )
+        
+        if (!response.ok) {
+          console.error('❌ Result API failed:', response.status)
+          return
+        }
+        
+        const data = await response.json()
+        console.log('📊 Transaction Result:', {
+          status: data.status,
+          type: data.type,
+          hasResult: !!data.result,
+        })
+        
+        if (data.status === 'completed' && data.result?.tx_hash) {
+          this.stopPolling()
+          onSuccess(data.result.tx_hash)
+        } else if (data.status === 'failed' || data.status === 'canceled' || data.status === 'reverted') {
+          this.stopPolling()
+          onError(new Error(`KAIA_TX_${data.status.toUpperCase()}`))
+        }
+      } catch (error) {
+        console.error('❌ Polling error:', error)
+      }
+    }, 1000) // 每秒轮询一次
+  }
+  
+  /**
+   * 获取 Deep Link（用于移动端）
+   */
+  getDeepLink(requestKey: string): string {
+    return `kaikas://wallet/api?request_key=${requestKey}`
+  }
 }

