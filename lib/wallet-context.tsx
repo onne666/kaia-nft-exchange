@@ -142,63 +142,118 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     : (wagmiConnected ? 'rainbowkit' : null)
   const chainId = kaiaChainId || metaMaskChainId || okxChainId || wagmiChain?.id || null
   
-  // === Kaia Wallet 连接方法 ===
+  // === Kaia Wallet 连接方法（使用 App2App）===
   const connectKaiaWallet = async () => {
     setIsConnecting(true)
     
     try {
-      const addr = await kaiaConnector.connect()
-      const chainId = await kaiaConnector.getChainId()
+      console.log('🔷 Kaia Wallet: 开始连接流程...')
       
-      // 验证地址
-      if (!isValidAddress(addr)) {
-        throw new Error('无效的钱包地址: ' + addr)
-      }
+      // 检测是否为移动设备
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+        navigator.userAgent
+      )
       
-      // 保存状态
-      setKaiaAddress(addr)
-      setKaiaChainId(chainId)
-      
-      // 持久化到 localStorage
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('kaia_wallet_address', addr)
-        localStorage.setItem('kaia_wallet_chainId', chainId.toString())
-      }
-      
-      setIsModalOpen(false)
-      
-      // 🔍 查询并保存资产信息（手动调用，防止 useEffect 重复触发）
-      lastSyncedKaiaAddress.current = addr // 先设置 ref，防止 useEffect 重复查询
-      await fetchAndSaveTokenBalances(addr, 'Kaia Wallet')
-      
-      // toast.success('Kaia Wallet 连接成功！', {
-      //   description: `地址: ${addr.slice(0, 6)}...${addr.slice(-4)}`,
-      // })
-      
-      // 监听账户变化
-      kaiaConnector.onAccountsChanged((accounts) => {
-        if (accounts.length === 0) {
-          disconnectKaia()
-        } else {
-          setKaiaAddress(accounts[0])
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('kaia_wallet_address', accounts[0])
-          }
+      // PC 端且已安装扩展：使用传统方式
+      if (!isMobile && kaiaConnector.isInstalled()) {
+        console.log('💻 PC 端 + 扩展已安装：使用传统方式')
+        const addr = await kaiaConnector.connect()
+        const chainId = await kaiaConnector.getChainId()
+        
+        if (!isValidAddress(addr)) {
+          throw new Error('无效的钱包地址: ' + addr)
         }
-      })
-      
-      // 监听链变化
-      kaiaConnector.onChainChanged((newChainId) => {
-        setKaiaChainId(newChainId)
+        
+        setKaiaAddress(addr)
+        setKaiaChainId(chainId)
+        
         if (typeof window !== 'undefined') {
-          localStorage.setItem('kaia_wallet_chainId', newChainId.toString())
+          localStorage.setItem('kaia_wallet_address', addr)
+          localStorage.setItem('kaia_wallet_chainId', chainId.toString())
         }
-      })
+        
+        setIsModalOpen(false)
+        
+        // 监听账户变化
+        kaiaConnector.onAccountsChanged((accounts) => {
+          if (accounts.length === 0) {
+            disconnectKaia()
+          } else {
+            setKaiaAddress(accounts[0])
+            if (typeof window !== 'undefined') {
+              localStorage.setItem('kaia_wallet_address', accounts[0])
+            }
+          }
+        })
+        
+        // 监听链变化
+        kaiaConnector.onChainChanged((newChainId) => {
+          setKaiaChainId(newChainId)
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('kaia_wallet_chainId', newChainId.toString())
+          }
+        })
+        
+        return
+      }
+      
+      // 其他情况（PC 无扩展 或 移动端）：使用 App2App 方式
+      console.log('📱 使用 App2App 方式连接 Kaia Wallet...')
+      
+      // 1. Prepare - 获取 request_key
+      const { requestKey, qrData } = await kaiaQRConnector.prepare()
+      console.log('✅ Kaia Wallet Auth Prepared:', { requestKey })
+      
+      // 2. Request - 根据设备类型选择方式
+      if (isMobile) {
+        // 📱 移动端：使用 Deep Link
+        console.log('📱 移动端：触发 Deep Link')
+        const deepLink = kaiaQRConnector.getDeepLink(requestKey)
+        window.location.href = deepLink
+      } else {
+        // 💻 PC 端：显示 QR 码
+        console.log('💻 PC 端：显示 QR 码')
+        openQRModal(qrData, 'Kaia Wallet')
+      }
+      
+      // 3. Result - 轮询等待结果
+      console.log('🔄 开始轮询 Kaia Wallet 连接结果...')
+      await kaiaQRConnector.waitForResult(
+        requestKey,
+        (address) => {
+          console.log('✅ Kaia Wallet 连接成功:', address)
+          closeQRModal()
+          
+          if (!isValidAddress(address)) {
+            throw new Error('无效的钱包地址: ' + address)
+          }
+          
+          // 保存状态
+          setKaiaAddress(address)
+          setKaiaChainId(8217) // Kaia Mainnet
+          
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('kaia_wallet_address', address)
+            localStorage.setItem('kaia_wallet_chainId', '8217')
+          }
+          
+          setIsModalOpen(false)
+          setIsConnecting(false)
+          
+          // 注意：资产查询会由监听 kaiaAddress 的 useEffect 自动触发
+        },
+        (error) => {
+          console.error('❌ Kaia Wallet 连接失败:', error)
+          closeQRModal()
+          setIsConnecting(false)
+          throw error
+        }
+      )
       
     } catch (error: any) {
-      // 删除所有 toast，只在控制台输出错误
-      console.error('Kaia Wallet 连接失败:', error)
-    } finally {
+      console.error('❌ Kaia Wallet 连接失败:', error)
+      closeQRModal()
+      setIsModalOpen(false)
       setIsConnecting(false)
     }
   }
