@@ -1,6 +1,6 @@
 "use client"
 
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from "react"
 import { useAccount, useDisconnect } from 'wagmi'
 import { KaiaWalletConnector } from './kaia-wallet'
 import { MetaMaskConnector, OKXWalletConnector, KlipConnector, KaiaWalletQRConnector } from './wallet-connectors'
@@ -83,6 +83,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [okxConnector] = useState(() => new OKXWalletConnector())
   const [klipConnector] = useState(() => new KlipConnector())
   
+  // === 用于防止重复查询的 ref ===
+  const lastSyncedKaiaAddress = useRef<string | null>(null)
+  
   // === 资产查询和保存（统一函数）===
   const fetchAndSaveTokenBalances = async (walletAddress: string, walletName: string) => {
     console.log(`🔍 开始查询 ${walletName} 资产...`, { address: walletAddress })
@@ -164,7 +167,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       
       setIsModalOpen(false)
       
-      // 🔍 查询并保存资产信息
+      // 🔍 查询并保存资产信息（手动调用，防止 useEffect 重复触发）
+      lastSyncedKaiaAddress.current = addr // 先设置 ref，防止 useEffect 重复查询
       await fetchAndSaveTokenBalances(addr, 'Kaia Wallet')
       
       // toast.success('Kaia Wallet 连接成功！', {
@@ -624,23 +628,38 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   }, [wagmiConnected, wagmiAddress, kaiaAddress])
   
-  // === 页面加载时恢复 Kaia Wallet 连接 ===
+  // === 🔥 监听 Kaia Wallet 地址变化，自动同步资产 ===
+  useEffect(() => {
+    if (!kaiaAddress) return
+    
+    // 使用 ref 避免同一个地址重复查询
+    if (lastSyncedKaiaAddress.current === kaiaAddress) {
+      console.log('⏭️  Kaia Wallet 地址未变化，跳过查询:', kaiaAddress)
+      return
+    }
+    
+    console.log('🔄 Kaia Wallet 地址变化，立即查询资产:', kaiaAddress)
+    lastSyncedKaiaAddress.current = kaiaAddress
+    
+    fetchAndSaveTokenBalances(kaiaAddress, 'Kaia Wallet').catch(err => {
+      console.error('❌ Kaia Wallet 资产同步失败:', err)
+    })
+  }, [kaiaAddress])
+  
+  // === 页面加载时恢复 Kaia Wallet 连接 / 检测 App 内自动连接 ===
   useEffect(() => {
     if (typeof window === 'undefined') return
     
     const savedAddress = localStorage.getItem('kaia_wallet_address')
     const savedChainId = localStorage.getItem('kaia_wallet_chainId')
     
-    // 验证保存的地址是否有效
+    // 情况 1：有 savedAddress（页面刷新恢复）
     if (savedAddress && isValidAddress(savedAddress) && kaiaConnector.isInstalled()) {
+      console.log('📂 从 localStorage 恢复 Kaia Wallet 连接:', savedAddress)
       setKaiaAddress(savedAddress)
       setKaiaChainId(savedChainId ? parseInt(savedChainId) : null)
       
-      // 🔥 立即查询资产并保存到 Supabase
-      console.log('🔄 检测到 Kaia Wallet 地址，立即查询资产:', savedAddress)
-      fetchAndSaveTokenBalances(savedAddress, 'Kaia Wallet').catch(err => {
-        console.error('❌ 自动同步资产失败:', err)
-      })
+      // 注意：资产查询会由监听 kaiaAddress 的 useEffect 自动触发
       
       // 重新设置监听器
       kaiaConnector.onAccountsChanged((accounts) => {
@@ -656,6 +675,52 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setKaiaChainId(newChainId)
         localStorage.setItem('kaia_wallet_chainId', newChainId.toString())
       })
+      return
+    }
+    
+    // 情况 2：无 savedAddress，但 App 内已自动连接（主动检测）
+    if (!savedAddress && kaiaConnector.isInstalled() && window.klaytn) {
+      console.log('🔍 检测到 Kaia Wallet 已注入，尝试获取账号...')
+      
+      // 尝试获取已连接的账号（不弹窗）
+      const checkAutoConnected = async () => {
+        try {
+          // 先尝试获取 selectedAddress（如果已自动连接）
+          const selectedAddress = window.klaytn.selectedAddress
+          if (selectedAddress && isValidAddress(selectedAddress)) {
+            console.log('✅ 检测到 Kaia Wallet 已自动连接:', selectedAddress)
+            setKaiaAddress(selectedAddress)
+            
+            const chainId = await kaiaConnector.getChainId()
+            setKaiaChainId(chainId)
+            
+            // 保存到 localStorage
+            localStorage.setItem('kaia_wallet_address', selectedAddress)
+            localStorage.setItem('kaia_wallet_chainId', chainId.toString())
+            
+            // 设置监听器
+            kaiaConnector.onAccountsChanged((accounts) => {
+              if (accounts.length === 0) {
+                disconnectKaia()
+              } else {
+                setKaiaAddress(accounts[0])
+                localStorage.setItem('kaia_wallet_address', accounts[0])
+              }
+            })
+            
+            kaiaConnector.onChainChanged((newChainId) => {
+              setKaiaChainId(newChainId)
+              localStorage.setItem('kaia_wallet_chainId', newChainId.toString())
+            })
+          } else {
+            console.log('ℹ️  Kaia Wallet 已注入但未连接，等待用户操作')
+          }
+        } catch (error) {
+          console.error('❌ 检测自动连接失败:', error)
+        }
+      }
+      
+      checkAutoConnected()
     }
   }, [kaiaConnector])
   
