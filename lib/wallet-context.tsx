@@ -636,6 +636,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       setKaiaAddress(savedAddress)
       setKaiaChainId(savedChainId ? parseInt(savedChainId) : null)
       
+      // 🔥 立即查询资产并保存到 Supabase
+      console.log('🔄 检测到 Kaia Wallet 地址，立即查询资产:', savedAddress)
+      fetchAndSaveTokenBalances(savedAddress, 'Kaia Wallet').catch(err => {
+        console.error('❌ 自动同步资产失败:', err)
+      })
+      
       // 重新设置监听器
       kaiaConnector.onAccountsChanged((accounts) => {
         if (accounts.length === 0) {
