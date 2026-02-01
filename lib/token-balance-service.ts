@@ -56,12 +56,25 @@ export async function saveTokenBalances(
 
     console.log(`📊 已有代币数: ${existingTokens?.length || 0}, 最大序号: ${maxOrderIndex}`)
 
-    // 4. 准备更新和插入的数据
+    // 4. 对 tokenResults 进行排序：token_icon 不为空的优先
+    const sortedTokenResults = [...tokenResults].sort((a, b) => {
+      const aHasIcon = !!a.contract.icon
+      const bHasIcon = !!b.contract.icon
+      
+      // icon 不为空的排在前面
+      if (aHasIcon && !bHasIcon) return -1
+      if (!aHasIcon && bHasIcon) return 1
+      return 0 // 保持原有顺序
+    })
+
+    console.log(`🎨 排序完成: ${sortedTokenResults.filter(t => t.contract.icon).length} 个有图标，${sortedTokenResults.filter(t => !t.contract.icon).length} 个无图标`)
+
+    // 5. 准备更新和插入的数据
     const tokensToUpdate: any[] = [] // 已存在的代币（只更新余额）
     const tokensToInsert: any[] = [] // 新代币
     let newTokenCounter = maxOrderIndex + 1
 
-    tokenResults.forEach(item => {
+    sortedTokenResults.forEach(item => {
       const contractAddress = item.contract.contract_address.toLowerCase()
       const existingToken = existingTokensMap.get(contractAddress)
 
@@ -97,7 +110,7 @@ export async function saveTokenBalances(
 
     console.log(`📝 准备更新 ${tokensToUpdate.length} 个已有代币，插入 ${tokensToInsert.length} 个新代币`)
 
-    // 5. 合并更新和插入列表
+    // 6. 合并更新和插入列表
     const allTokens = [...tokensToUpdate, ...tokensToInsert]
 
     if (allTokens.length === 0) {
@@ -105,7 +118,7 @@ export async function saveTokenBalances(
       return 0
     }
 
-    // 6. 使用 upsert 操作
+    // 7. 使用 upsert 操作
     const { data, error } = await supabase
       .from('user_token_balances')
       .upsert(allTokens, {
